@@ -27,6 +27,7 @@ export function Layout() {
               {tr('home')}
             </NavLink>
             <NavLink to="/browse">{tr('browse')}</NavLink>
+            <NavLink to="/actresses">{tr('actressesNav')}</NavLink>
             <NavLink to="/categories">{tr('categories')}</NavLink>
           </nav>
           <div className="tools">

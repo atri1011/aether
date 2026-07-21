@@ -1,22 +1,43 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
+import type { VideoFilterOptions } from '../types'
 import { useLocale } from '../context'
 import { VideoGrid } from '../components/VideoGrid'
 import { InfiniteSentinel } from '../components/InfiniteSentinel'
 import { usePagedList } from '../hooks/usePagedList'
+import { VideoFilterBar } from '../components/VideoFilterBar'
+import { useVideoListQuery } from '../hooks/useVideoListQuery'
 
 export function SearchPage() {
   const { locale, tr } = useLocale()
   const [params] = useSearchParams()
   const q = (params.get('q') || '').trim()
+  const { query, setQuery } = useVideoListQuery({ sort: 'released_at' })
+  const [filterOptions, setFilterOptions] = useState<VideoFilterOptions | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .videoFilters(locale)
+      .then((d) => {
+        if (!cancelled) setFilterOptions(d)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [locale])
 
   const loader = useCallback(
     async (page: number) => {
       if (!q) return { items: [], page, pageSize: 24, hasMore: false }
-      const d = await api.searchPage(q, locale, page, 24)
+      const d = await api.searchPage(q, locale, page, 24, query)
+      if (d.filterOptions) setFilterOptions(d.filterOptions)
       const hasMore =
-        typeof d.hasMore === 'boolean' ? d.hasMore : (d.items?.length || 0) >= (d.pageSize || 24)
+        typeof d.hasMore === 'boolean'
+          ? d.hasMore
+          : (d.items?.length || 0) >= Math.min(d.pageSize || 24, 12)
       return {
         items: d.items || [],
         page: d.page || page,
@@ -24,13 +45,18 @@ export function SearchPage() {
         hasMore,
       }
     },
-    [q, locale],
+    [q, locale, query],
   )
 
-  const { items, loading, loadingMore, error, hasMore, loadMore } = usePagedList(loader, [q, locale])
+  const { items, loading, loadingMore, error, hasMore, loadMore } = usePagedList(loader, [
+    q,
+    locale,
+    query.filters,
+    query.sort,
+  ])
 
   if (!q) return <div className="state">{tr('searchPlaceholder')}</div>
-  if (loading) return <div className="state">{tr('loading')}</div>
+  if (loading && !items.length) return <div className="state">{tr('loading')}</div>
   if (error && !items.length) return <div className="state error">{error}</div>
 
   return (
@@ -41,6 +67,7 @@ export function SearchPage() {
         </h2>
         <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
       </div>
+      <VideoFilterBar options={filterOptions} value={query} onChange={setQuery} />
       {items.length ? <VideoGrid items={items} /> : <div className="state">{tr('empty')}</div>}
       <InfiniteSentinel
         onVisible={loadMore}

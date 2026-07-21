@@ -1,9 +1,15 @@
 import type {
+  ActressFilterOptions,
+  ActressListFilters,
+  ActressProfile,
+  ActressSummary,
   CategoryItem,
   HomePayload,
   Locale,
   PagedResult,
   VideoDetail,
+  VideoFilterOptions,
+  VideoListQuery,
   VideoSummary,
 } from '../types'
 
@@ -19,46 +25,69 @@ async function getJson<T>(url: string, locale: Locale): Promise<T> {
   return data as T
 }
 
+function withVideoQuery(base: string, locale: Locale, page: number, pageSize: number, q?: VideoListQuery) {
+  const p = new URLSearchParams()
+  p.set('locale', locale)
+  p.set('page', String(page))
+  p.set('pageSize', String(pageSize))
+  if (q?.filters) p.set('filters', q.filters)
+  if (q?.sort) p.set('sort', q.sort)
+  const sep = base.includes('?') ? '&' : '?'
+  return `${base}${sep}${p.toString()}`
+}
+
+export type VideoListResponse = PagedResult<VideoSummary> & {
+  hasMore?: boolean
+  filters?: string
+  sort?: string
+  filterOptions?: VideoFilterOptions
+  source?: string
+  category?: { slug: string; title: string; kind?: string }
+}
+
 export const api = {
   home: (locale: Locale) => getJson<HomePayload>(`/api/home?locale=${locale}`, locale),
-  search: (q: string, locale: Locale, page = 1) =>
-    getJson<PagedResult<VideoSummary>>(
-      `/api/search?q=${encodeURIComponent(q)}&page=${page}&locale=${locale}`,
+  videoFilters: (locale: Locale) =>
+    getJson<{ filters: FilterOptionLike[]; sorts: FilterOptionLike[]; defaults?: Record<string, string> }>(
+      `/api/video-filters?locale=${locale}`,
       locale,
+    ).then(
+      (d) =>
+        ({
+          filters: d.filters,
+          sorts: d.sorts,
+        }) as VideoFilterOptions,
     ),
-  browse: (locale: Locale, page = 1, filter?: string) => {
-    const f = filter ? `&filter=${encodeURIComponent(filter)}` : ''
-    return getJson<PagedResult<VideoSummary>>(
-      `/api/browse?page=${page}&locale=${locale}${f}`,
-      locale,
-    )
-  },
+  search: (q: string, locale: Locale, page = 1, query?: VideoListQuery) =>
+    api.searchPage(q, locale, page, 24, query),
+  browse: (locale: Locale, page = 1, query?: VideoListQuery) =>
+    api.browsePage(locale, page, 24, query),
   categories: (locale: Locale) =>
-    getJson<{ items: CategoryItem[] }>(`/api/categories?locale=${locale}`, locale),
-  category: (slug: string, locale: Locale, page = 1, pageSize = 24) =>
-    getJson<{
-      category: { slug: string; title: string; kind?: string }
-      items: VideoSummary[]
-      page: number
-      pageSize: number
-      hasMore?: boolean
-      source?: string
-    }>(
-      `/api/c/${encodeURIComponent(slug)}?page=${page}&pageSize=${pageSize}&locale=${locale}`,
+    getJson<{ items: CategoryItem[]; filterOptions?: VideoFilterOptions }>(
+      `/api/categories?locale=${locale}`,
       locale,
     ),
-  searchPage: (q: string, locale: Locale, page = 1, pageSize = 24) =>
-    getJson<PagedResult<VideoSummary> & { hasMore?: boolean }>(
-      `/api/search?q=${encodeURIComponent(q)}&page=${page}&pageSize=${pageSize}&locale=${locale}`,
+  category: (slug: string, locale: Locale, page = 1, pageSize = 24, query?: VideoListQuery) =>
+    getJson<VideoListResponse>(
+      withVideoQuery(`/api/c/${encodeURIComponent(slug)}`, locale, page, pageSize, query),
       locale,
     ),
-  browsePage: (locale: Locale, page = 1, pageSize = 24, filter?: string) => {
-    const f = filter ? `&filter=${encodeURIComponent(filter)}` : ''
-    return getJson<PagedResult<VideoSummary> & { hasMore?: boolean }>(
-      `/api/browse?page=${page}&pageSize=${pageSize}&locale=${locale}${f}`,
+  searchPage: (q: string, locale: Locale, page = 1, pageSize = 24, query?: VideoListQuery) =>
+    getJson<VideoListResponse>(
+      (() => {
+        const p = new URLSearchParams()
+        p.set('q', q)
+        p.set('locale', locale)
+        p.set('page', String(page))
+        p.set('pageSize', String(pageSize))
+        if (query?.filters) p.set('filters', query.filters)
+        if (query?.sort) p.set('sort', query.sort)
+        return `/api/search?${p.toString()}`
+      })(),
       locale,
-    )
-  },
+    ),
+  browsePage: (locale: Locale, page = 1, pageSize = 24, query?: VideoListQuery) =>
+    getJson<VideoListResponse>(withVideoQuery('/api/browse', locale, page, pageSize, query), locale),
   video: (id: string, locale: Locale) =>
     getJson<VideoDetail>(`/api/video/${encodeURIComponent(id)}?locale=${locale}`, locale),
   resolveStream: async (id: string, locale: Locale) => {
@@ -70,7 +99,51 @@ export const api = {
     if (!res.ok) throw new Error(data?.error || res.statusText)
     return data as VideoDetail
   },
+  actressFilters: (locale: Locale) =>
+    getJson<{ filters: ActressFilterOptions }>(`/api/actresses/filters?locale=${locale}`, locale),
+  actressRanking: (locale: Locale) =>
+    getJson<{ title: string; items: ActressSummary[]; count: number }>(
+      `/api/actresses/ranking?locale=${locale}`,
+      locale,
+    ),
+  actresses: (locale: Locale, page = 1, filters: ActressListFilters = {}) => {
+    const p = new URLSearchParams()
+    p.set('locale', locale)
+    p.set('page', String(page))
+    if (filters.sort) p.set('sort', filters.sort)
+    if (filters.height) p.set('height', filters.height)
+    if (filters.cup) p.set('cup', filters.cup)
+    if (filters.age) p.set('age', filters.age)
+    if (filters.debut) p.set('debut', filters.debut)
+    return getJson<{
+      items: ActressSummary[]
+      page: number
+      pageSize: number
+      hasMore?: boolean
+      filters: ActressListFilters
+      filterOptions: ActressFilterOptions
+    }>(`/api/actresses?${p.toString()}`, locale)
+  },
+  actressDetail: (slug: string, locale: Locale, page = 1, query?: VideoListQuery) => {
+    const p = new URLSearchParams()
+    p.set('locale', locale)
+    p.set('page', String(page))
+    if (query?.filters) p.set('filters', query.filters)
+    if (query?.sort) p.set('sort', query.sort)
+    return getJson<{
+      actress: ActressProfile
+      items: VideoSummary[]
+      page: number
+      pageSize: number
+      hasMore?: boolean
+      filters?: string
+      sort?: string
+      filterOptions?: VideoFilterOptions
+    }>(`/api/actresses/${encodeURIComponent(slug)}?${p.toString()}`, locale)
+  },
 }
+
+type FilterOptionLike = { value: string; label: string }
 
 export function formatDuration(sec: number) {
   if (!sec || sec < 0) return '—'

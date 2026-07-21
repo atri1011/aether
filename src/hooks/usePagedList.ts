@@ -33,10 +33,11 @@ export function usePagedList(loader: Loader, deps: unknown[]) {
       const d = await loaderRef.current(1)
       setItems(d.items || [])
       setPage(1)
+      // Prefer server hasMore. Fallback: missav scrape pages are ~12, not 24.
       const more =
         typeof d.hasMore === 'boolean'
           ? d.hasMore
-          : (d.items?.length || 0) >= (d.pageSize || 24)
+          : (d.items?.length || 0) >= Math.min(d.pageSize || 24, 12)
       setHasMore(more)
       setMeta(d as unknown as Record<string, unknown>)
     } catch (e) {
@@ -76,7 +77,7 @@ export function usePagedList(loader: Loader, deps: unknown[]) {
       const more =
         typeof d.hasMore === 'boolean'
           ? d.hasMore
-          : batch.length >= (d.pageSize || 24)
+          : batch.length >= Math.min(d.pageSize || 24, 12)
       setHasMore(more && batch.length > 0)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))

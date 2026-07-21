@@ -6,6 +6,8 @@ import { BrowsePage } from './pages/BrowsePage'
 import { SearchPage } from './pages/SearchPage'
 import { CategoriesPage } from './pages/CategoriesPage'
 import { WatchPage } from './pages/WatchPage'
+import { ActressesPage } from './pages/ActressesPage'
+import { ActressDetailPage } from './pages/ActressDetailPage'
 
 export default function App() {
   return (
@@ -16,6 +18,9 @@ export default function App() {
             <Route index element={<HomePage />} />
             <Route path="browse" element={<BrowsePage />} />
             <Route path="search" element={<SearchPage />} />
+            <Route path="actresses" element={<ActressesPage />} />
+            <Route path="actresses/ranking" element={<ActressesPage />} />
+            <Route path="actress/:slug" element={<ActressDetailPage />} />
             <Route path="categories" element={<CategoriesPage />} />
             <Route path="c/:slug" element={<CategoriesPage />} />
             <Route path="v/:id" element={<WatchPage />} />

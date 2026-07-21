@@ -54,7 +54,57 @@ export function pyResolveStream(id) {
   return runPython('resolve_stream.py', [id], { timeoutMs: 60000 })
 }
 
-export function pyScrapeList(listPath, page = 1, locale = 'zh') {
+export function pyScrapeList(listPath, page = 1, locale = 'zh', opts = {}) {
   const loc = String(locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
-  return runPython('scrape_list.py', [listPath, String(page), loc], { timeoutMs: 45000 })
+  const dash = (v) => (v == null || v === '' ? '-' : String(v))
+  return runPython(
+    'scrape_list.py',
+    [listPath, String(page), loc, dash(opts.filters), dash(opts.sort)],
+    { timeoutMs: 50000 },
+  )
+}
+
+/** Actress directory / ranking / detail — see scrape_actresses.py */
+export function pyScrapeActressesList(opts = {}) {
+  const {
+    page = 1,
+    locale = 'zh',
+    sort = '',
+    height = '',
+    cup = '',
+    age = '',
+    debut = '',
+  } = opts
+  const loc = String(locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
+  const dash = (v) => (v == null || v === '' ? '-' : String(v))
+  return runPython(
+    'scrape_actresses.py',
+    [
+      'list',
+      String(page),
+      loc,
+      dash(sort),
+      dash(height),
+      dash(cup),
+      dash(age),
+      dash(debut),
+    ],
+    { timeoutMs: 50000 },
+  )
+}
+
+export function pyScrapeActressesRanking(locale = 'zh') {
+  const loc = String(locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
+  return runPython('scrape_actresses.py', ['ranking', loc], { timeoutMs: 50000 })
+}
+
+export function pyScrapeActressDetail(slug, page = 1, locale = 'zh', opts = {}) {
+  const loc = String(locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
+  const sort = opts.sort ? String(opts.sort) : '-'
+  const filter = opts.filter ? String(opts.filter) : '-'
+  return runPython(
+    'scrape_actresses.py',
+    ['detail', String(slug), String(page), loc, sort, filter],
+    { timeoutMs: 50000 },
+  )
 }

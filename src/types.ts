@@ -64,4 +64,60 @@ export interface CategoryItem {
   filter: string
 }
 
+export interface ActressSummary {
+  slug: string
+  name: string
+  avatarUrl: string
+  actressId?: string
+  videoCount?: number | null
+  debutYear?: number | null
+  rank?: number | null
+}
+
+export interface ActressStats {
+  heightCm: number
+  bust: string
+  waist: string
+  hip: string
+  raw?: string
+}
+
+export interface ActressProfile extends ActressSummary {
+  stats?: ActressStats | null
+  birthday?: string | null
+  age?: number | null
+}
+
+export interface FilterOption {
+  value: string
+  label: string
+}
+
+export interface ActressFilterOptions {
+  sort: FilterOption[]
+  height: FilterOption[]
+  cup: FilterOption[]
+  age: FilterOption[]
+  debut: FilterOption[]
+}
+
+export interface ActressListFilters {
+  sort?: string
+  height?: string
+  cup?: string
+  age?: string
+  debut?: string
+}
+
+/** MissAV-style video list query (filters + sort) */
+export interface VideoListQuery {
+  filters?: string
+  sort?: string
+}
+
+export interface VideoFilterOptions {
+  filters: FilterOption[]
+  sorts: FilterOption[]
+}
+
 export type Locale = 'zh' | 'en'

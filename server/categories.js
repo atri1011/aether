@@ -76,6 +76,7 @@ export const CATEGORIES = [
     titleEn: 'Creampie',
     kind: 'genre',
     genre: '中出し',
+    listPath: 'genres/中出し',
   },
   {
     slug: 'genre-big-breasts',
@@ -83,6 +84,7 @@ export const CATEGORIES = [
     titleEn: 'Big Breasts',
     kind: 'genre',
     genre: '巨乳',
+    listPath: 'genres/巨乳',
   },
   {
     slug: 'genre-beauty',
@@ -90,6 +92,7 @@ export const CATEGORIES = [
     titleEn: 'Pretty Girl',
     kind: 'genre',
     genre: '美少女',
+    listPath: 'genres/美少女',
   },
   {
     slug: 'genre-wife',
@@ -97,6 +100,7 @@ export const CATEGORIES = [
     titleEn: 'Wife',
     kind: 'genre',
     genre: '人妻・主婦',
+    listPath: 'genres/人妻・主婦',
   },
   {
     slug: 'genre-mature',
@@ -104,6 +108,7 @@ export const CATEGORIES = [
     titleEn: 'Mature',
     kind: 'genre',
     genre: '熟女',
+    listPath: 'genres/熟女',
   },
 ]
 
