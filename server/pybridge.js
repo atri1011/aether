@@ -54,6 +54,7 @@ export function pyResolveStream(id) {
   return runPython('resolve_stream.py', [id], { timeoutMs: 60000 })
 }
 
-export function pyScrapeList(listPath, page = 1) {
-  return runPython('scrape_list.py', [listPath, String(page)], { timeoutMs: 45000 })
+export function pyScrapeList(listPath, page = 1, locale = 'zh') {
+  const loc = String(locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
+  return runPython('scrape_list.py', [listPath, String(page), loc], { timeoutMs: 45000 })
 }

@@ -66,41 +66,76 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/hls', handleHlsProxy)
 
 function scrapeToSummary(it) {
+  const id = String(it.id || '')
+  const base = id
+    .toLowerCase()
+    .replace(/-uncensored-leak$/i, '')
+    .replace(/-chinese-subtitle$/i, '')
+    .replace(/-english-subtitle$/i, '')
   return {
-    id: it.id,
-    code: String(it.id || '').toUpperCase(),
-    title: it.title || it.id,
-    coverUrl: it.coverUrl || `https://fourhoi.com/${it.id}/cover-t.jpg`,
+    id,
+    code: base.toUpperCase(),
+    title: it.title || base.toUpperCase(),
+    coverUrl: it.coverUrl || `https://fourhoi.com/${base}/cover-t.jpg`,
     durationSec: 0,
     releasedAt: null,
     actresses: [],
     genres: [],
     tags: [],
     labels: [],
-    type: 'unknown',
-    hasChineseSubtitle: false,
-    hasEnglishSubtitle: false,
-    isUncensoredLeak: /uncensored/i.test(it.id || ''),
+    type: /chinese-subtitle/i.test(id)
+      ? 'chinese-subtitle'
+      : /uncensored/i.test(id)
+        ? 'uncensored-leak'
+        : 'unknown',
+    hasChineseSubtitle: /chinese-subtitle/i.test(id),
+    hasEnglishSubtitle: /english-subtitle/i.test(id),
+    isUncensoredLeak: /uncensored/i.test(id),
   }
+}
+
+async function loadChineseSubtitleRail(locale, count = 12) {
+  // Recombee search is keyword-sensitive: CJK query "字幕" often returns 0 hits.
+  // Prefer filter-based recommend, then neutral keyword search, then HTML scrape.
+  const filter = "'has_chinese_subtitle' == true"
+  const attempts = [
+    () => recommendForUser({ count, filter }),
+    () => searchItems('chinese', { count, filter }),
+    () => searchItems('a', { count, filter }),
+  ]
+  for (const run of attempts) {
+    try {
+      const raw = await run()
+      const mapped = mapRecomms(raw, locale)
+      if (mapped.items.length) return mapped.items
+    } catch {
+      // try next strategy
+    }
+  }
+  try {
+    const scraped = await pyScrapeList('chinese-subtitle', 1, locale)
+    if (scraped?.ok && scraped.items?.length) {
+      return scraped.items.slice(0, count).map(scrapeToSummary)
+    }
+  } catch {
+    // empty rail
+  }
+  return []
 }
 
 app.get('/api/home', async (req, res) => {
   const locale = localeOf(req)
-  const key = `home:v4:${locale}`
+  const key = `home:v5:${locale}`
   try {
     const { data, cache } = await withCache(key, config.ttl.home, async () => {
-      const [featuredRaw, segmentsRaw, chineseRaw, newScrape] = await Promise.all([
+      const [featuredRaw, segmentsRaw, chineseItems, newScrape] = await Promise.all([
         recommendHome({ count: 16 }).catch(() => recommendForUser({ count: 16 })),
         recommendSegments({ count: 8 }).catch(() => ({ recomms: [] })),
-        searchItems('字幕', {
-          count: 12,
-          filter: "'has_chinese_subtitle' == true",
-        }).catch(() => recommendForUser({ count: 12 })),
-        pyScrapeList('new', 1).catch(() => null),
+        loadChineseSubtitleRail(locale, 12),
+        pyScrapeList('new', 1, locale).catch(() => null),
       ])
 
       const featured = mapRecomms(featuredRaw, locale)
-      const chinese = mapRecomms(chineseRaw, locale)
       const segmentIds = (segmentsRaw.recomms || []).map((r) => r.id).filter(Boolean)
 
       // genre rails in parallel (max 3)
@@ -131,7 +166,7 @@ app.get('/api/home', async (req, res) => {
         hero: featured.items[0] || null,
         featured: featured.items.slice(0, 10),
         latest,
-        chineseSubtitle: chinese.items,
+        chineseSubtitle: chineseItems,
         genreRails,
         segments: segmentIds,
         recommId: featured.recommId,
@@ -233,7 +268,7 @@ app.get('/api/c/:slug', async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1)
   const pageSize = Math.min(48, Math.max(1, Number(req.query.pageSize) || 24))
   const count = page * pageSize
-  const key = `cat:v3:${locale}:${cat.slug}:${page}:${pageSize}`
+  const key = `cat:v4:${locale}:${cat.slug}:${page}:${pageSize}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       const category = {
@@ -245,7 +280,7 @@ app.get('/api/c/:slug', async (req, res) => {
       // 1) HTML scrape for real list pages
       if (cat.kind === 'scrape' && cat.listPath) {
         try {
-          const scraped = await pyScrapeList(cat.listPath, page)
+          const scraped = await pyScrapeList(cat.listPath, page, locale)
           if (scraped?.ok && scraped.items?.length) {
             const items = scraped.items.slice(0, pageSize).map(scrapeToSummary)
             return {
