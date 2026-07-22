@@ -311,9 +311,21 @@ def scrape(
         "sort": sort,
     }
 
+    # Cloudflare often challenges bare GETs; same-site Referer unlocks search/list.
+    _headers = {
+        "Referer": "https://missav.ai/",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
     for url in candidate_urls(path, page, locale, filters=filters, sort=sort):
         try:
-            r = requests.get(url, impersonate="chrome131", timeout=30, allow_redirects=True)
+            r = requests.get(
+                url,
+                impersonate="chrome131",
+                timeout=30,
+                allow_redirects=True,
+                headers=_headers,
+            )
         except Exception as e:
             last = {
                 "ok": False,

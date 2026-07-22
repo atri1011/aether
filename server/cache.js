@@ -7,7 +7,11 @@ async function ensureDir() {
 }
 
 function fileFor(key) {
-  const safe = key.replace(/[^a-zA-Z0-9._=-]+/g, '_')
+  // Keep CJK / unicode query segments — collapsing non-ASCII to "_" made
+  // actress search keys collide (e.g. 深田 / 明日花 / 桥本有菜 → same file).
+  const safe = String(key)
+    .replace(/[<>:"/\\|?*\x00-\x1f]+/g, '_')
+    .replace(/\s+/g, '_')
   return path.join(config.cacheDir, `${safe}.json`)
 }
 

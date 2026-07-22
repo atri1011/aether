@@ -44,6 +44,14 @@ def bases() -> list[str]:
     ]
 
 
+# Cloudflare often challenges bare GETs; a same-site Referer unlocks /search/*.
+DEFAULT_HEADERS = {
+    "Referer": "https://missav.ai/",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
+
 def candidate_urls(path: str, page: int, locale: str, query: dict | None = None) -> list[str]:
     """Build missav actress listing URLs (cn for zh, en for en)."""
     path = path.strip("/")
@@ -67,6 +75,25 @@ def candidate_urls(path: str, page: int, locale: str, query: dict | None = None)
         else:
             urls.append(f"{host}/{loc}/{path}{qstr}")
             urls.append(f"{host}/dm14/{loc}/{path}{qstr}")
+    return urls
+
+
+def search_candidate_urls(q: str, locale: str) -> list[str]:
+    """MissAV search page URLs that embed the actress avatar rail (same as site UI)."""
+    encoded_q = quote(q, safe="")
+    loc = site_locale(locale)
+    urls: list[str] = []
+    for host in bases():
+        if loc == "cn":
+            urls += [
+                f"{host}/cn/search/{encoded_q}",
+                f"{host}/search/{encoded_q}",
+            ]
+        else:
+            urls += [
+                f"{host}/{loc}/search/{encoded_q}",
+                f"{host}/search/{encoded_q}",
+            ]
     return urls
 
 
@@ -291,16 +318,44 @@ def parse_actress_profile(html: str) -> dict:
     }
 
 
-def fetch_first_ok(urls: list[str], parse_fn):
+def _http_get(url: str, *, retries: int = 1):
+    """GET with browser impersonation + site Referer; optional short retries on CF 403."""
+    import time
+
+    last_err = "request failed"
+    attempts = max(1, int(retries or 1))
+    for i in range(attempts):
+        try:
+            r = requests.get(
+                url,
+                impersonate="chrome131",
+                timeout=30,
+                allow_redirects=True,
+                headers=DEFAULT_HEADERS,
+            )
+        except Exception as e:
+            last_err = str(e)
+            if i + 1 < attempts:
+                time.sleep(0.6 + i * 0.5)
+                continue
+            return None, last_err
+        if r.status_code == 200 and r.text and len(r.text) > 5000:
+            return r, None
+        last_err = f"status {r.status_code}"
+        # CF challenge pages are tiny; brief backoff then retry same URL
+        if r.status_code in {403, 503, 429} and i + 1 < attempts:
+            time.sleep(0.8 + i * 0.7)
+            continue
+        break
+    return None, last_err
+
+
+def fetch_first_ok(urls: list[str], parse_fn, *, retries: int = 1):
     last = {"ok": False, "error": "no candidate succeeded"}
     for url in urls:
-        try:
-            r = requests.get(url, impersonate="chrome131", timeout=30, allow_redirects=True)
-        except Exception as e:
-            last = {"ok": False, "error": str(e), "url": url}
-            continue
-        if r.status_code != 200:
-            last = {"ok": False, "error": f"status {r.status_code}", "url": str(r.url)}
+        r, err = _http_get(url, retries=retries)
+        if r is None:
+            last = {"ok": False, "error": err or "request failed", "url": url}
             continue
         try:
             parsed = parse_fn(r.text)
@@ -480,7 +535,12 @@ def scrape_detail(
 
 
 def scrape_search(q: str, locale: str = "zh", limit: int = 12) -> dict:
-    """Fuzzy actress search: try keyword list URLs, then filter multi-page directory."""
+    """Actress search via MissAV /search/{q} page (same actress rail as the site).
+
+    MissAV embeds matching actress avatar cards above video results on
+    ``/{locale}/search/{keyword}``. We scrape that rail — not the actress
+    directory (often CF-blocked, and ``?q=`` does not filter names).
+    """
     q = _clean_text(q or "")
     if not q:
         return {"ok": False, "error": "q required", "items": [], "count": 0}
@@ -491,17 +551,21 @@ def scrape_search(q: str, locale: str = "zh", limit: int = 12) -> dict:
 
     loc = normalize_locale(locale)
     scored: dict[str, tuple[int, dict]] = {}
+    source_url = None
 
-    def ingest(items: list[dict]):
+    def ingest(items: list[dict], *, require_fuzzy: bool):
         for it in items or []:
             slug = (it.get("slug") or "").strip()
             if not slug:
                 continue
             sc = fuzzy_score(q, it.get("name") or "", slug)
-            if sc <= 0:
+            # MissAV search rail is already name-matched; still rank by score.
+            # Directory fallback must require a positive fuzzy hit.
+            if require_fuzzy and sc <= 0:
                 continue
+            if sc <= 0:
+                sc = 1  # keep site-ordered rail entries even if normalize misses
             prev = scored.get(slug)
-            # keep higher score; tie-break richer videoCount
             if prev is None or sc > prev[0]:
                 scored[slug] = (sc, it)
             elif sc == prev[0]:
@@ -510,59 +574,58 @@ def scrape_search(q: str, locale: str = "zh", limit: int = 12) -> dict:
                 if cv is not None and (pv is None or cv > pv):
                     scored[slug] = (sc, it)
 
-    # 1) Prefer real /search/{q} pages first (actresses?q|keyword ignore filters)
-    encoded_q = quote(q, safe="")
-    urls: list[str] = []
-    for host in bases():
-        sl = site_locale(loc)
-        if sl == "cn":
-            urls += [
-                f"{host}/cn/search/{encoded_q}",
-                f"{host}/dm14/cn/search/{encoded_q}",
-                f"{host}/search/{encoded_q}",
-                f"{host}/dm14/search/{encoded_q}",
-            ]
-        else:
-            urls += [
-                f"{host}/{sl}/search/{encoded_q}",
-                f"{host}/dm14/{sl}/search/{encoded_q}",
-            ]
-    # Last-resort only: directory query params never filter on MissAV
-    urls += candidate_urls("actresses", 1, loc, {"q": q})
-    urls += candidate_urls("actresses", 1, loc, {"keyword": q})
-
-    def parse_probe(html: str):
+    # 1) Primary: real MissAV search page actress rail (site UI parity)
+    def parse_search_page(html: str):
         items = parse_actress_cards(html)
-        if not items:
+        # Empty rail is valid (e.g. code-only queries like SSIS-001) — only
+        # reject clearly broken/challenge pages (tiny HTML / no search chrome).
+        if "fourhoi.com" not in html and not items:
             return None
-        # Reject unfiltered full directory dumps that happen to parse as cards
-        if any(fuzzy_score(q, it.get("name") or "", it.get("slug") or "") > 0 for it in items):
-            return {"items": items}
-        return None
+        # Challenge / block pages are short and lack listing chrome.
+        if len(html) < 20000 and not items:
+            return None
+        return {"items": items or []}
 
-    probed = fetch_first_ok(urls, parse_probe)
+    probed = fetch_first_ok(
+        search_candidate_urls(q, loc),
+        parse_search_page,
+        retries=3,
+    )
     if probed.get("ok"):
-        ingest(probed.get("items") or [])
+        source_url = probed.get("url")
+        rail = probed.get("items") or []
+        # Prefer site rail order: ingest with original order preserved via rank
+        for i, it in enumerate(rail):
+            if it.get("rank") is None:
+                it = {**it, "rank": None}
+            # stash rail order in a temp field via videoCount-stable sort later
+            it = dict(it)
+            it["_rail"] = i
+            ingest([it], require_fuzzy=False)
 
-    # 2) Fallback: first pages of actress directory sorted by videos
-    if len(scored) < limit:
-        for page in (1, 2, 3):
-            listed = scrape_list(page, loc, sort="videos")
-            if not listed.get("ok"):
-                break
-            ingest(listed.get("items") or [])
-            if len(scored) >= limit * 2:
-                break
+    # 2) Fallback only when search page totally failed: ranking + fuzzy filter
+    #    (directory /actresses is frequently CF 403 and not useful for search).
+    if not scored:
+        ranked_page = scrape_ranking(loc)
+        if ranked_page.get("ok"):
+            source_url = source_url or ranked_page.get("url")
+            ingest(ranked_page.get("items") or [], require_fuzzy=True)
 
+    # Prefer MissAV rail order (site UI parity); fuzzy score only as secondary.
     ranked = sorted(
         scored.values(),
         key=lambda pair: (
+            pair[1].get("_rail", 10_000),
             -pair[0],
             -(pair[1].get("videoCount") or -1),
             pair[1].get("name") or "",
         ),
     )
-    items = [it for _, it in ranked[:limit]]
+    items = []
+    for _, it in ranked[:limit]:
+        clean = {k: v for k, v in it.items() if not str(k).startswith("_")}
+        items.append(clean)
+
     return {
         "ok": True,
         "query": q,
@@ -570,7 +633,9 @@ def scrape_search(q: str, locale: str = "zh", limit: int = 12) -> dict:
         "count": len(items),
         "mode": "search",
         "source": "scrape",
+        "matchedBy": "missav-search" if items else "none",
         "locale": loc,
+        "url": source_url,
     }
 
 

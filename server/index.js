@@ -776,7 +776,8 @@ app.get('/api/actresses/search', async (req, res) => {
   const limit = Math.min(24, Math.max(1, Number(req.query.limit) || 12))
   if (!q) return sendError(res, 400, 'CONFIG', 'q is required')
 
-  const key = `actresses:search:v1:${locale}:${q.toLowerCase()}:${limit}`
+  // v2: scrape MissAV /search/{q} actress rail (not directory fuzzy dump)
+  const key = `actresses:search:v2:${locale}:${q.toLowerCase()}:${limit}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       try {
@@ -787,7 +788,7 @@ app.get('/api/actresses/search', async (req, res) => {
           items,
           count: items.length,
           source: scraped?.source || 'scrape',
-          matchedBy: 'fuzzy',
+          matchedBy: scraped?.matchedBy || (items.length ? 'missav-search' : 'none'),
           url: scraped?.url,
         }
       } catch (e) {
@@ -797,7 +798,7 @@ app.get('/api/actresses/search', async (req, res) => {
           items: [],
           count: 0,
           source: 'error',
-          matchedBy: 'fuzzy',
+          matchedBy: 'error',
           error: e.message,
         }
       }
@@ -810,7 +811,7 @@ app.get('/api/actresses/search', async (req, res) => {
       items: [],
       count: 0,
       source: 'error',
-      matchedBy: 'fuzzy',
+      matchedBy: 'error',
       error: e.message,
     })
   }
