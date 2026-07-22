@@ -7,15 +7,18 @@ type Props = {
   onChange: (next: VideoListQuery) => void
   /** hide filters dropdown (sort only) */
   sortOnly?: boolean
+  /** list-kind default (e.g. today_views for 今日热门) */
+  defaultSort?: string
 }
 
-export function VideoFilterBar({ options, value, onChange, sortOnly }: Props) {
+export function VideoFilterBar({ options, value, onChange, sortOnly, defaultSort }: Props) {
   const { tr } = useLocale()
   if (!options) return null
 
+  const baseSort = defaultSort || options.sorts[0]?.value || 'published_at'
   const filters = value.filters || ''
-  const sort = value.sort || options.sorts[0]?.value || 'published_at'
-  const dirty = !!(filters || (sort && sort !== 'published_at' && sort !== 'released_at'))
+  const sort = value.sort || baseSort
+  const dirty = !!(filters || (sort && sort !== baseSort))
 
   return (
     <div className="filter-bar video-filter-bar">
@@ -53,7 +56,7 @@ export function VideoFilterBar({ options, value, onChange, sortOnly }: Props) {
         <button
           type="button"
           className="btn"
-          onClick={() => onChange({ filters: '', sort: options.sorts[0]?.value || 'published_at' })}
+          onClick={() => onChange({ filters: '', sort: baseSort })}
         >
           {tr('clearFilters')}
         </button>

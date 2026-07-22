@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { CategoryItem, VideoFilterOptions } from '../types'
@@ -10,6 +10,7 @@ import { VideoFilterBar } from '../components/VideoFilterBar'
 import { useVideoListQuery } from '../hooks/useVideoListQuery'
 import { VideoSkeletonGrid } from '../components/Skeleton'
 import { CategoryChipGrid } from '../components/CategoryChipGrid'
+import { defaultSortForCategory } from '../lib/videoListDefaults'
 
 export function CategoriesPage() {
   const { locale, tr } = useLocale()
@@ -22,7 +23,9 @@ export function CategoriesPage() {
   const [cats, setCats] = useState<CategoryItem[]>([])
   const [title, setTitle] = useState('')
   const [filterOptions, setFilterOptions] = useState<VideoFilterOptions | null>(null)
-  const { query, setQuery } = useVideoListQuery({ sort: 'published_at' })
+  // Hot / release lists need view- or date-based defaults — not published_at
+  const defaultSort = useMemo(() => defaultSortForCategory(slug), [slug])
+  const { query, setQuery } = useVideoListQuery({ sort: defaultSort })
 
   // Only load the chip index on /categories (no slug)
   useEffect(() => {
@@ -101,7 +104,12 @@ export function CategoriesPage() {
         <h2>{title || slug}</h2>
         <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
       </div>
-      <VideoFilterBar options={filterOptions} value={query} onChange={setQuery} />
+      <VideoFilterBar
+        options={filterOptions}
+        value={query}
+        onChange={setQuery}
+        defaultSort={defaultSort}
+      />
       {loading && !items.length && <VideoSkeletonGrid count={12} />}
       {error && !items.length && <div className="state error">{error}</div>}
       {!loading && !error && (

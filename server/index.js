@@ -33,6 +33,7 @@ import { handleHlsProxy, toProxiedStream } from './hlsProxy.js'
 import { ensureMediaWorker, stopMediaWorker } from './mediaWorker.js'
 import {
   DEFAULT_SORT,
+  defaultSortForCategory,
   localizeVideoFilters,
   recombeeFilterFor,
   sanitizeVideoFilter,
@@ -531,13 +532,7 @@ app.get(['/api/c/:slug', '/api/c/:kind/:name'], async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1)
   const pageSize = Math.min(48, Math.max(1, Number(req.query.pageSize) || 24))
   const filters = sanitizeVideoFilter(req.query.filters || req.query.filter)
-  const defaultSort =
-    cat.slug.includes('hot') || cat.slug === 'today-hot'
-      ? DEFAULT_SORT.hot
-      : cat.slug === 'release'
-        ? DEFAULT_SORT.release
-        : DEFAULT_SORT.default
-  const sort = sanitizeVideoSort(req.query.sort, defaultSort)
+  const sort = sanitizeVideoSort(req.query.sort, defaultSortForCategory(cat.slug))
   const count = page * pageSize
   const key = `cat:v9:${locale}:${cat.slug}:${page}:${pageSize}:${filters}:${sort}`
   try {
