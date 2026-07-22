@@ -12,6 +12,40 @@ import { VideoSkeletonGrid } from '../components/Skeleton'
 import { CategoryChipGrid } from '../components/CategoryChipGrid'
 import { defaultSortForCategory } from '../lib/videoListDefaults'
 
+/** Instant title from route slug — don't wait for scrape. */
+function titleFromSlug(slug: string | undefined): string {
+  if (!slug) return ''
+  const parts = slug.split('/').filter(Boolean)
+  const last = parts[parts.length - 1] || slug
+  try {
+    return decodeURIComponent(last)
+  } catch {
+    return last
+  }
+}
+
+/** Static filter options — same as server localizeVideoFilters; avoid extra RTT. */
+function staticFilterOptions(locale: string): VideoFilterOptions {
+  const en = locale === 'en'
+  return {
+    filters: [
+      { value: '', label: en ? 'All' : '所有' },
+      { value: 'individual', label: en ? 'Individual' : '单人作品' },
+      { value: 'multiple', label: en ? 'Multiple' : '多人作品' },
+      { value: 'chinese-subtitle', label: en ? 'Chinese Subtitle' : '中文字幕' },
+    ],
+    sorts: [
+      { value: 'published_at', label: en ? 'Recently Updated' : '最近更新' },
+      { value: 'released_at', label: en ? 'Release Date' : '发行日期' },
+      { value: 'saved', label: en ? 'Saved' : '收藏数' },
+      { value: 'today_views', label: en ? 'Today Views' : '今日浏览数' },
+      { value: 'weekly_views', label: en ? 'Weekly Views' : '本周浏览数' },
+      { value: 'monthly_views', label: en ? 'Monthly Views' : '本月浏览数' },
+      { value: 'views', label: en ? 'Total Views' : '总浏览数' },
+    ],
+  }
+}
+
 export function CategoriesPage() {
   const { locale, tr } = useLocale()
   const params = useParams()
@@ -21,11 +55,20 @@ export function CategoriesPage() {
       ? `${params.kind}/${params.name}`
       : params.slug
   const [cats, setCats] = useState<CategoryItem[]>([])
-  const [title, setTitle] = useState('')
-  const [filterOptions, setFilterOptions] = useState<VideoFilterOptions | null>(null)
+  const instantTitle = useMemo(() => titleFromSlug(slug), [slug])
+  const [title, setTitle] = useState(instantTitle)
+  const [filterOptions, setFilterOptions] = useState<VideoFilterOptions | null>(() =>
+    slug ? staticFilterOptions(locale) : null,
+  )
   // Hot / release lists need view- or date-based defaults — not published_at
   const defaultSort = useMemo(() => defaultSortForCategory(slug), [slug])
   const { query, setQuery } = useVideoListQuery({ sort: defaultSort })
+
+  // Keep heading in sync when navigating between categories without remount glitches
+  useEffect(() => {
+    setTitle(instantTitle)
+    if (slug) setFilterOptions(staticFilterOptions(locale))
+  }, [instantTitle, locale, slug])
 
   // Only load the chip index on /categories (no slug)
   useEffect(() => {
@@ -44,25 +87,11 @@ export function CategoriesPage() {
     }
   }, [locale, slug])
 
-  useEffect(() => {
-    if (!slug) return
-    let cancelled = false
-    api
-      .videoFilters(locale)
-      .then((d) => {
-        if (!cancelled) setFilterOptions(d)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [locale, slug])
-
   const loader = useCallback(
     async (page: number) => {
       if (!slug) return { items: [], page, pageSize: 24, hasMore: false }
       const d = await api.category(slug, locale, page, 24, query)
-      setTitle(d.category?.title || slug)
+      if (d.category?.title) setTitle(d.category.title)
       if (d.filterOptions) setFilterOptions(d.filterOptions)
       const hasMore =
         typeof d.hasMore === 'boolean'
@@ -85,6 +114,26 @@ export function CategoriesPage() {
     query.sort,
   ])
 
+  // Preload first cover as soon as list arrives (LCP for grid pages)
+  useEffect(() => {
+    if (!items.length || typeof document === 'undefined') return
+    const url = items[0]?.coverUrl
+    if (!url) return
+    const link = document.createElement('link')
+    link.rel = 'preload'
+    link.as = 'image'
+    link.href = url
+    link.setAttribute('fetchpriority', 'high')
+    document.head.appendChild(link)
+    return () => {
+      try {
+        document.head.removeChild(link)
+      } catch {
+        /* already removed */
+      }
+    }
+  }, [items])
+
   // Index page: only the category chips
   if (!slug) {
     return (
@@ -101,7 +150,7 @@ export function CategoriesPage() {
   return (
     <section className="section">
       <div className="section-head">
-        <h2>{title || slug}</h2>
+        <h2>{title || instantTitle || slug}</h2>
         <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
       </div>
       <VideoFilterBar
@@ -112,24 +161,24 @@ export function CategoriesPage() {
       />
       {loading && !items.length && <VideoSkeletonGrid count={12} />}
       {error && !items.length && <div className="state error">{error}</div>}
-      {!loading && !error && (
+      {items.length > 0 && (
         <>
-          {items.length ? <VideoGrid items={items} /> : <div className="state">{tr('empty')}</div>}
+          <VideoGrid items={items} />
           <InfiniteSentinel
             onVisible={loadMore}
-            disabled={!hasMore}
+            disabled={!hasMore || loading}
             loading={loadingMore}
             label={tr('loadMore')}
             loadingLabel={tr('loadingMore')}
           />
-          {!hasMore && items.length > 0 && (
+          {!hasMore && !loading && (
             <div className="state" style={{ padding: '1.25rem' }}>
               {tr('endOfList')}
             </div>
           )}
         </>
       )}
-      {loading && items.length > 0 && <div className="state">{tr('loading')}</div>}
+      {!loading && !error && !items.length && <div className="state">{tr('empty')}</div>}
     </section>
   )
 }

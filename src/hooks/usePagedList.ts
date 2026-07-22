@@ -26,6 +26,8 @@ export function usePagedList(loader: Loader, deps: unknown[]) {
     busy.current = true
     setLoading(true)
     setError(null)
+    // Clear list so switching categories never shows the previous slug's cards.
+    // Prefetch + listCache still make the next paint near-instant when warm.
     setItems([])
     setPage(0)
     setHasMore(true)

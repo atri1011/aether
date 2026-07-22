@@ -15,16 +15,27 @@ function fileFor(key) {
   return path.join(config.cacheDir, `${safe}.json`)
 }
 
-export async function cacheGet(key) {
+/** @returns {Promise<{ value: any, expiresAt: number|null, savedAt: number }|null>} */
+export async function cacheGetEntry(key) {
   try {
     const raw = await fs.readFile(fileFor(key), 'utf8')
     const entry = JSON.parse(raw)
     if (!entry || typeof entry !== 'object') return null
-    if (entry.expiresAt && Date.now() > entry.expiresAt) return null
-    return entry.value
+    return {
+      value: entry.value,
+      expiresAt: entry.expiresAt ?? null,
+      savedAt: entry.savedAt || 0,
+    }
   } catch {
     return null
   }
+}
+
+export async function cacheGet(key) {
+  const entry = await cacheGetEntry(key)
+  if (!entry) return null
+  if (entry.expiresAt && Date.now() > entry.expiresAt) return null
+  return entry.value
 }
 
 export async function cacheSet(key, value, ttlMs) {
@@ -40,11 +51,6 @@ export async function cacheSet(key, value, ttlMs) {
 
 /** Return stale value even if expired — last-success fallback */
 export async function cacheGetStale(key) {
-  try {
-    const raw = await fs.readFile(fileFor(key), 'utf8')
-    const entry = JSON.parse(raw)
-    return entry?.value ?? null
-  } catch {
-    return null
-  }
+  const entry = await cacheGetEntry(key)
+  return entry?.value ?? null
 }

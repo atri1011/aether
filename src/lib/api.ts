@@ -13,6 +13,8 @@ import type {
   VideoListQuery,
   VideoSummary,
 } from '../types'
+import { categoryListCacheKey, listCacheLoad } from './listCache'
+import { defaultSortForCategory } from './videoListDefaults'
 
 async function getJson<T>(url: string, locale: Locale): Promise<T> {
   const res = await fetch(url, {
@@ -96,10 +98,24 @@ export const api = {
       .filter(Boolean)
       .map((s) => encodeURIComponent(s))
       .join('/')
-    return getJson<VideoListResponse>(
-      withVideoQuery(`/api/c/${path}`, locale, page, pageSize, query),
-      locale,
+    const filters = query?.filters || ''
+    const sort = query?.sort || ''
+    const key = categoryListCacheKey(slug, locale, page, pageSize, filters, sort)
+    return listCacheLoad(key, () =>
+      getJson<VideoListResponse>(
+        withVideoQuery(`/api/c/${path}`, locale, page, pageSize, query),
+        locale,
+      ),
     )
+  },
+  /**
+   * Fire-and-forget prefetch for category page 1 (hover / pointerdown on chips).
+   * Shares the same memory cache + in-flight map as category().
+   */
+  prefetchCategory: (slug: string, locale: Locale, query?: VideoListQuery) => {
+    const sort = query?.sort || defaultSortForCategory(slug)
+    const filters = query?.filters || ''
+    void api.category(slug, locale, 1, 24, { filters, sort }).catch(() => {})
   },
   searchPage: (q: string, locale: Locale, page = 1, pageSize = 24, query?: VideoListQuery) =>
     getJson<VideoListResponse>(

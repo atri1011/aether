@@ -176,10 +176,10 @@ export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: n
         <img
           src={video.coverUrl}
           alt={title}
-          // Size win is cover-t (~34KB). Keep lazy; only bump priority for top of each grid.
-          loading={index < 2 ? 'eager' : 'lazy'}
+          // Size win is cover-t (~34KB). Eager first row so titles+covers appear together.
+          loading={index < 6 ? 'eager' : 'lazy'}
           decoding="async"
-          fetchPriority={index === 0 ? 'high' : 'auto'}
+          fetchPriority={index < 2 ? 'high' : 'auto'}
           width={330}
           height={222}
           referrerPolicy="no-referrer"

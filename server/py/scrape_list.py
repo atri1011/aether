@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from urllib.parse import quote, unquote, urlencode
 
 try:
@@ -18,6 +20,85 @@ try:
 except ImportError:
     print(json.dumps({"ok": False, "error": "curl_cffi not installed"}))
     sys.exit(2)
+
+# Persist last-good host/path patterns so cold scrapes try winners first.
+_WINNER_FILE = Path(__file__).resolve().parent.parent.parent / ".cache" / "aether" / "scrape-url-winners.json"
+_winner_hosts: list[str] = []
+_winner_patterns: list[str] = []
+
+
+def _load_winners() -> None:
+    global _winner_hosts, _winner_patterns
+    try:
+        raw = json.loads(_WINNER_FILE.read_text(encoding="utf-8"))
+        hosts = raw.get("hosts") or []
+        patterns = raw.get("patterns") or []
+        if isinstance(hosts, list):
+            _winner_hosts = [str(h) for h in hosts if h][:6]
+        if isinstance(patterns, list):
+            _winner_patterns = [str(p) for p in patterns if p][:8]
+    except Exception:
+        _winner_hosts = []
+        _winner_patterns = []
+
+
+def _remember_winner(request_url: str, final_url: str | None = None) -> None:
+    """Record stable host + locale prefix from the *request* URL (not ephemeral dm*).
+
+    MissAV often redirects /genres/X → /dm123/genres/X. Those dm IDs are
+    session-ish and 403 later — never store pure-digit dm mirrors as winners.
+    """
+    global _winner_hosts, _winner_patterns
+    try:
+        from urllib.parse import urlparse
+
+        # Prefer the URL we requested (stable). Fall back to final only for host.
+        u = urlparse(request_url or final_url or "")
+        host = f"{u.scheme}://{u.netloc}" if u.netloc else ""
+        segs = [s for s in (u.path or "").split("/") if s]
+
+        # Strip list tail: genres/X, makers/X, search/X, actresses/X, or last segment
+        cut = len(segs)
+        for i, s in enumerate(segs):
+            if s in {"genres", "makers", "search", "actresses"}:
+                cut = i
+                break
+        else:
+            if segs:
+                cut = len(segs) - 1  # bare /new style
+        prefix_segs = segs[:cut]
+
+        # Drop ephemeral mirror ids: dm + digits only (dm133, dm2208642…)
+        stable = [
+            s
+            for s in prefix_segs
+            if not re.fullmatch(r"dm\d+", s, re.I)
+        ]
+        prefix = "/".join(stable)
+        pattern = f"{host}/{prefix}" if prefix else host
+
+        if host:
+            _winner_hosts = [host] + [h for h in _winner_hosts if h != host]
+            _winner_hosts = _winner_hosts[:4]
+        if pattern:
+            _winner_patterns = [pattern] + [p for p in _winner_patterns if p != pattern]
+            # also purge any previously-saved ephemeral dm patterns
+            _winner_patterns = [
+                p
+                for p in _winner_patterns
+                if not re.search(r"/dm\d+(/|$)", p, re.I)
+            ][:6]
+
+        _WINNER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _WINNER_FILE.write_text(
+            json.dumps({"hosts": _winner_hosts, "patterns": _winner_patterns}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+_load_winners()
 
 # Nav / footer / sister-site paths that look like slugs but are not DVD ids
 SKIP = {
@@ -199,31 +280,62 @@ def candidate_urls(
     filters: str | None = None,
     sort: str | None = None,
 ) -> list[str]:
-    """Build listing URLs across missav.ai / missav.ws with locale + query."""
+    """Build listing URLs; put last-good hosts/patterns first (cold miss ~4s not ~25s)."""
     path = encode_path(path)
     loc = site_locale(locale)
     qs = build_query(page, filters, sort)
     qstr = ("?" + urlencode(qs)) if qs else ""
 
-    hosts = ["https://missav.ai", "https://missav.ws"]
+    # Prefer previously successful hosts, then defaults.
+    default_hosts = ["https://missav.ws", "https://missav.ai"]
+    hosts: list[str] = []
+    for h in _winner_hosts + default_hosts:
+        if h and h not in hosts:
+            hosts.append(h)
+
+    # Stable prefixes only — ephemeral dm+digits come from redirects, not requests.
+    # Bare path often redirects to a working dm* and is the fastest cold hit.
+    if loc == "cn":
+        prefixes = [
+            "",  # bare /genres/X → often redirects to live dm*
+            "cn",
+            "dm539/cn",
+            "dm14/cn",
+            "zh",
+            "dm539",
+        ]
+    else:
+        prefixes = [
+            "en",
+            "",
+            "dm539/en",
+            "dm14/en",
+            "dm278/en",
+        ]
+
     urls: list[str] = []
+    seen: set[str] = set()
+
+    def push(url: str) -> None:
+        if url and url not in seen:
+            seen.add(url)
+            urls.append(url)
+
+    # 1) Stable last-good patterns (never dm+digits)
+    for pat in _winner_patterns:
+        if re.search(r"/dm\d+(/|$)", pat, re.I):
+            continue
+        base = pat.rstrip("/")
+        push(f"{base}/{path}{qstr}")
+
+    # 2) Full matrix, winners-first host order
     for host in hosts:
-        if loc == "cn":
-            urls += [
-                f"{host}/cn/{path}{qstr}",
-                f"{host}/dm539/cn/{path}{qstr}",
-                f"{host}/dm14/cn/{path}{qstr}",
-                f"{host}/{path}{qstr}",
-                f"{host}/zh/{path}{qstr}",
-                f"{host}/dm539/{path}{qstr}",
-            ]
-        else:
-            urls += [
-                f"{host}/en/{path}{qstr}",
-                f"{host}/dm539/en/{path}{qstr}",
-                f"{host}/dm14/en/{path}{qstr}",
-                f"{host}/dm278/en/{path}{qstr}",
-            ]
+        for pref in prefixes:
+            if pref:
+                push(f"{host}/{pref}/{path}{qstr}")
+            else:
+                push(f"{host}/{path}{qstr}")
+
     return urls
 
 
@@ -297,6 +409,12 @@ def scrape(
     filters: str | None = None,
     sort: str | None = None,
 ):
+    """Two-phase URL race — small burst first, expand only if needed.
+
+    Serial 12-candidate loops burned ~25s on 403s. A huge parallel burst can
+    also trip CF rate limits. Phase-1 races 4 high-priority URLs (~3–6s);
+    phase-2 only runs if those all fail.
+    """
     path = path.strip("/")
     locale = normalize_locale(locale)
     filters = (filters or "").strip() or None
@@ -313,62 +431,70 @@ def scrape(
 
     # Cloudflare often challenges bare GETs; same-site Referer unlocks search/list.
     _headers = {
-        "Referer": "https://missav.ai/",
+        "Referer": "https://missav.ws/",
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
-    for url in candidate_urls(path, page, locale, filters=filters, sort=sort):
+    # Session only for sequential first hop (thread-safe); races use plain get.
+    session = requests.Session()
+    urls = candidate_urls(path, page, locale, filters=filters, sort=sort)
+    if not urls:
+        return last
+
+    def try_one(url: str, timeout: float = 10, use_session: bool = False) -> dict:
+        client = session if use_session else requests
         try:
-            r = requests.get(
+            r = client.get(
                 url,
                 impersonate="chrome131",
-                timeout=30,
+                timeout=timeout,
                 allow_redirects=True,
                 headers=_headers,
             )
         except Exception as e:
-            last = {
+            return {
                 "ok": False,
                 "error": str(e),
                 "url": url,
+                "requestUrl": url,
                 "path": path,
                 "page": page,
                 "locale": locale,
                 "filters": filters,
                 "sort": sort,
             }
-            continue
 
         if r.status_code != 200:
-            last = {
+            return {
                 "ok": False,
                 "error": f"status {r.status_code}",
                 "url": str(r.url),
+                "requestUrl": url,
                 "path": path,
                 "page": page,
                 "locale": locale,
                 "filters": filters,
                 "sort": sort,
             }
-            continue
 
         items = parse_items(r.text)
         if not items:
-            last = {
+            return {
                 "ok": False,
                 "error": "no items parsed",
                 "url": str(r.url),
+                "requestUrl": url,
                 "path": path,
                 "page": page,
                 "locale": locale,
                 "filters": filters,
                 "sort": sort,
             }
-            continue
 
         return {
             "ok": True,
             "url": str(r.url),
+            "requestUrl": url,
             "path": path,
             "page": page,
             "locale": locale,
@@ -377,6 +503,48 @@ def scrape(
             "items": items,
             "count": len(items),
         }
+
+    def race(batch: list[str], timeout: float) -> dict | None:
+        nonlocal last
+        if not batch:
+            return None
+        workers = min(3, len(batch))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(try_one, u, timeout): u for u in batch}
+            for fut in as_completed(futures):
+                result = fut.result()
+                if result.get("ok") and result.get("items"):
+                    _remember_winner(
+                        str(result.get("requestUrl") or futures[fut]),
+                        str(result.get("url") or ""),
+                    )
+                    for other in futures:
+                        if other is not fut:
+                            other.cancel()
+                    return result
+                last = result
+        return None
+
+    # Phase 0: single best URL first (lowest CF heat; often the winner)
+    if urls:
+        first = try_one(urls[0], timeout=12, use_session=True)
+        if first.get("ok") and first.get("items"):
+            _remember_winner(str(first.get("requestUrl") or urls[0]), str(first.get("url") or ""))
+            return first
+        last = first
+
+    # Phase 1: small parallel race of next candidates
+    phase1 = urls[1:4]
+    hit = race(phase1, timeout=10)
+    if hit:
+        return hit
+
+    # Phase 2: remaining in small waves (avoid rate-limit storms)
+    rest = urls[4:]
+    for i in range(0, len(rest), 3):
+        hit = race(rest[i : i + 3], timeout=10)
+        if hit:
+            return hit
 
     return last
 

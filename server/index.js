@@ -3,7 +3,7 @@ import cors from 'cors'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { config } from './config.js'
-import { cacheGet, cacheGetStale, cacheSet } from './cache.js'
+import { cacheGet, cacheGetEntry, cacheGetStale, cacheSet } from './cache.js'
 import {
   recommendByGenre,
   recommendForUser,
@@ -59,20 +59,65 @@ function sendError(res, status, code, error, details) {
   res.status(status).json({ error, code, details })
 }
 
-async function withCache(key, ttl, loader, { allowStale = true } = {}) {
-  const hit = await cacheGet(key)
-  if (hit != null) return { data: hit, cache: 'fresh' }
-  try {
-    const data = await loader()
-    await cacheSet(key, data, ttl)
-    return { data, cache: 'miss' }
-  } catch (e) {
-    if (allowStale) {
-      const stale = await cacheGetStale(key)
-      if (stale != null) return { data: stale, cache: 'stale' }
+/** In-flight promise map — concurrent requests for the same key share one loader. */
+const inflight = new Map()
+
+/**
+ * Disk cache with:
+ * - fresh hit → return immediately
+ * - expired but present → return stale NOW + revalidate in background (SWR)
+ * - miss → singleflight loader, then set
+ * - loader error → last-success stale if allowStale
+ */
+async function withCache(key, ttl, loader, { allowStale = true, swr = true } = {}) {
+  const entry = await cacheGetEntry(key)
+  const now = Date.now()
+  const fresh = entry && (!entry.expiresAt || entry.expiresAt > now)
+
+  if (fresh) return { data: entry.value, cache: 'fresh' }
+
+  // Stale-while-revalidate: serve expired data instantly, refresh off-path.
+  if (swr && allowStale && entry?.value != null) {
+    if (!inflight.has(key)) {
+      const p = Promise.resolve()
+        .then(loader)
+        .then((data) => cacheSet(key, data, ttl).then(() => data))
+        .catch(() => entry.value)
+        .finally(() => inflight.delete(key))
+      inflight.set(key, p)
     }
-    throw e
+    return { data: entry.value, cache: 'stale' }
   }
+
+  // Cold miss — singleflight so N concurrent users don't N× scrape.
+  if (inflight.has(key)) {
+    const data = await inflight.get(key)
+    return { data, cache: 'coalesced' }
+  }
+
+  let mode = 'miss'
+  const p = (async () => {
+    try {
+      const data = await loader()
+      await cacheSet(key, data, ttl)
+      return data
+    } catch (e) {
+      if (allowStale) {
+        const stale = await cacheGetStale(key)
+        if (stale != null) {
+          mode = 'stale'
+          return stale
+        }
+      }
+      throw e
+    } finally {
+      inflight.delete(key)
+    }
+  })()
+  inflight.set(key, p)
+
+  const data = await p
+  return { data, cache: mode }
 }
 
 app.get('/api/health', (_req, res) => {
@@ -1023,8 +1068,79 @@ app.get(/^(?!\/api).*/, (req, res, next) => {
   })
 })
 
+/** Background-warm first page of sidebar / hot rails so first click is a cache hit. */
+function warmPopularCategories() {
+  const locale = 'zh'
+  const slugs = [
+    'new',
+    'release',
+    'today-hot',
+    'weekly-hot',
+    'chinese-subtitle',
+    'uncensored-leak',
+    'genres/中出',
+    'genres/巨乳',
+    'genres/美少女',
+    'genres/人妻',
+  ]
+  let i = 0
+  const tick = async () => {
+    if (i >= slugs.length) return
+    const slug = slugs[i++]
+    const cat = resolveCategory(slug) || findCategory(slug)
+    if (!cat) {
+      setTimeout(tick, 400)
+      return
+    }
+    const sort = defaultSortForCategory(cat.slug)
+    const key = `cat:v9:${locale}:${cat.slug}:1:24::${sort}`
+    try {
+      // Skip if already fresh
+      const existing = await cacheGetEntry(key)
+      if (existing && (!existing.expiresAt || existing.expiresAt > Date.now())) {
+        console.log(`[aether] warm skip (fresh) ${slug}`)
+      } else {
+        await withCache(key, config.ttl.browse, async () => {
+          const listPath = cat.listPath || (cat.kind === 'scrape' ? cat.slug : null)
+          if (!listPath) throw new Error('no listPath')
+          const scraped = await pyScrapeList(listPath, 1, locale, { filters: '', sort })
+          if (!scraped?.ok || !scraped.items?.length) {
+            throw new Error(scraped?.error || 'empty scrape')
+          }
+          const all = mapScrapeItems(scraped.items)
+          if (!all.length) throw new Error('no valid items')
+          return {
+            category: {
+              slug: cat.slug,
+              title: cat.titleZh,
+              kind: cat.kind,
+            },
+            items: all.slice(0, 24),
+            page: 1,
+            pageSize: 24,
+            total: null,
+            source: 'scrape',
+            hasMore: all.length >= SCRAPE_PAGE_FULL,
+            filters: '',
+            sort,
+            filterOptions: localizeVideoFilters(locale),
+            url: scraped.url,
+          }
+        }, { allowStale: false, swr: false })
+        console.log(`[aether] warm ok ${slug}`)
+      }
+    } catch (e) {
+      console.warn(`[aether] warm fail ${slug}: ${e.message || e}`)
+    }
+    // Stagger to avoid CF rate limits
+    setTimeout(tick, 2500)
+  }
+  setTimeout(tick, 3000)
+}
+
 const server = app.listen(config.port, () => {
   console.log(`[aether] ${config.siteName} api on http://localhost:${config.port}`)
+  warmPopularCategories()
 })
 
 function shutdown() {
