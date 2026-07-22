@@ -510,33 +510,39 @@ def scrape_search(q: str, locale: str = "zh", limit: int = 12) -> dict:
                 if cv is not None and (pv is None or cv > pv):
                     scored[slug] = (sc, it)
 
-    # 1) Probe keyword-style actress listing URLs (best effort)
+    # 1) Prefer real /search/{q} pages first (actresses?q|keyword ignore filters)
     encoded_q = quote(q, safe="")
-    probe_paths = [
-        f"actresses?q={encoded_q}",
-        f"actresses?keyword={encoded_q}",
-        f"search/{encoded_q}",
-    ]
-    # candidate_urls expects path without leading ? — use path + query via query dict instead
-    for page in (1,):
-        urls = candidate_urls("actresses", page, loc, {"q": q})
-        urls += candidate_urls("actresses", page, loc, {"keyword": q})
-        # Also try site search pages that might embed actress cards
-        for host in bases():
-            sl = site_locale(loc)
-            if sl == "cn":
-                urls.append(f"{host}/cn/search/{encoded_q}")
-                urls.append(f"{host}/search/{encoded_q}")
-            else:
-                urls.append(f"{host}/{sl}/search/{encoded_q}")
+    urls: list[str] = []
+    for host in bases():
+        sl = site_locale(loc)
+        if sl == "cn":
+            urls += [
+                f"{host}/cn/search/{encoded_q}",
+                f"{host}/dm14/cn/search/{encoded_q}",
+                f"{host}/search/{encoded_q}",
+                f"{host}/dm14/search/{encoded_q}",
+            ]
+        else:
+            urls += [
+                f"{host}/{sl}/search/{encoded_q}",
+                f"{host}/dm14/{sl}/search/{encoded_q}",
+            ]
+    # Last-resort only: directory query params never filter on MissAV
+    urls += candidate_urls("actresses", 1, loc, {"q": q})
+    urls += candidate_urls("actresses", 1, loc, {"keyword": q})
 
-        def parse_probe(html: str):
-            items = parse_actress_cards(html)
-            return {"items": items} if items else None
+    def parse_probe(html: str):
+        items = parse_actress_cards(html)
+        if not items:
+            return None
+        # Reject unfiltered full directory dumps that happen to parse as cards
+        if any(fuzzy_score(q, it.get("name") or "", it.get("slug") or "") > 0 for it in items):
+            return {"items": items}
+        return None
 
-        probed = fetch_first_ok(urls, parse_probe)
-        if probed.get("ok"):
-            ingest(probed.get("items") or [])
+    probed = fetch_first_ok(urls, parse_probe)
+    if probed.get("ok"):
+        ingest(probed.get("items") or [])
 
     # 2) Fallback: first pages of actress directory sorted by videos
     if len(scored) < limit:
@@ -590,7 +596,10 @@ def main():
     elif mode == "search":
         q = sys.argv[2] if len(sys.argv) > 2 else ""
         locale = sys.argv[3] if len(sys.argv) > 3 else "zh"
-        limit = int(sys.argv[4]) if len(sys.argv) > 4 else 12
+        try:
+            limit = int(sys.argv[4]) if len(sys.argv) > 4 else 12
+        except ValueError:
+            limit = 12
         result = scrape_search(q, locale, limit)
     else:
         page = int(sys.argv[2]) if len(sys.argv) > 2 else 1
