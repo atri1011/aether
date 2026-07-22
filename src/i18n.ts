@@ -3,7 +3,7 @@ import type { Locale } from './types'
 const dict = {
   zh: {
     brand: 'AETHER',
-    tagline: '影像 · 编辑部',
+    tagline: 'Night Archive',
     home: '首页',
     browse: '浏览',
     categories: '分类',
@@ -51,11 +51,11 @@ const dict = {
     actressWorks: '作品',
     actressStats: '身材',
     actressBirthday: '生日',
-    footer: 'AETHER Archive — editorial front for stream research',
+    footer: 'AETHER — soft cinema archive',
   },
   en: {
     brand: 'AETHER',
-    tagline: 'Editorial Archive',
+    tagline: 'Night Archive',
     home: 'Home',
     browse: 'Browse',
     categories: 'Categories',
@@ -103,7 +103,7 @@ const dict = {
     actressWorks: 'Works',
     actressStats: 'Stats',
     actressBirthday: 'Birthday',
-    footer: 'AETHER Archive — editorial front for stream research',
+    footer: 'AETHER — soft cinema archive',
   },
 } as const
 

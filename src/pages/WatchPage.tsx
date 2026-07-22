@@ -61,7 +61,7 @@ export function WatchPage() {
 
   return (
     <>
-      <div className="detail">
+      <div className={`detail${theatre ? ' theatre-layout' : ''}`}>
         <div>
           <Player
             src={src}

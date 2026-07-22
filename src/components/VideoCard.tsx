@@ -3,16 +3,26 @@ import type { VideoSummary } from '../types'
 import { formatDuration } from '../lib/api'
 
 export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: number }) {
+  const sub = [
+    formatDuration(video.durationSec),
+    video.actresses?.[0] ? video.actresses[0] : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  const title = video.title || video.code
+
   return (
     <Link
       className="card"
       to={`/v/${encodeURIComponent(video.id)}`}
       style={{ ['--i' as string]: Math.min(index, 12) }}
+      aria-label={title}
     >
       <div className="card-cover">
         <img
           src={video.coverUrl}
-          alt={video.title}
+          alt={title}
           loading="lazy"
           referrerPolicy="no-referrer"
           onError={(e) => {
@@ -39,11 +49,18 @@ export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: n
           <span className="card-duration">{formatDuration(video.durationSec)}</span>
         )}
         <span className="card-code">{video.code}</span>
-      </div>
-      <div className="card-title">{video.title || video.code}</div>
-      <div className="card-sub">
-        {formatDuration(video.durationSec)}
-        {video.actresses?.[0] ? ` · ${video.actresses[0]}` : ''}
+
+        {/* Always-readable meta (mobile + resting state) */}
+        <div className="card-meta">
+          <div className="card-title">{title}</div>
+          {sub && <div className="card-sub">{sub}</div>}
+        </div>
+
+        {/* Richer desktop hover layer */}
+        <div className="card-overlay">
+          <div className="card-title">{title}</div>
+          {sub && <div className="card-sub">{sub}</div>}
+        </div>
       </div>
     </Link>
   )

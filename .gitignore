@@ -25,3 +25,4 @@ dist-ssr
 .cache/
 artifacts/tmp/
 .playwright-mcp/
+design-system/aether/MASTER.md

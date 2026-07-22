@@ -20,19 +20,24 @@ export function VideoFilterBar({ options, value, onChange, sortOnly }: Props) {
   return (
     <div className="filter-bar video-filter-bar">
       {!sortOnly && (
-        <label className="filter-field">
+        <div className="filter-field" style={{ minWidth: 'min(100%, 18rem)', flex: '1 1 16rem' }}>
           <span>{tr('filterBy')}</span>
-          <select
-            value={filters}
-            onChange={(e) => onChange({ ...value, filters: e.target.value })}
-          >
-            {(options.filters || []).map((o) => (
-              <option key={o.value || 'all'} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <div className="filter-chips">
+            {(options.filters || []).map((o) => {
+              const active = (o.value || '') === filters
+              return (
+                <button
+                  key={o.value || 'all'}
+                  type="button"
+                  className={`chip${active ? ' active' : ''}`}
+                  onClick={() => onChange({ ...value, filters: o.value })}
+                >
+                  {o.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
       )}
       <label className="filter-field">
         <span>{tr('sortBy')}</span>

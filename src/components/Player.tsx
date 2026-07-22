@@ -100,7 +100,7 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
             ))}
           </select>
         )}
-        {error && <span style={{ color: '#f0b4b4', fontSize: '0.8rem' }}>{error}</span>}
+        {error && <span style={{ color: '#f0b4c0', fontSize: '0.8rem' }}>{error}</span>}
         {!src && <span style={{ color: 'var(--ink-dim)', fontSize: '0.8rem' }}>No stream</span>}
       </div>
     </div>
