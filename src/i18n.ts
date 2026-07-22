@@ -51,6 +51,7 @@ const dict = {
     actressWorks: '作品',
     actressStats: '身材',
     actressBirthday: '生日',
+    actressMatches: '相关女优',
     footer: 'AETHER — soft cinema archive',
   },
   en: {
@@ -103,6 +104,7 @@ const dict = {
     actressWorks: 'Works',
     actressStats: 'Stats',
     actressBirthday: 'Birthday',
+    actressMatches: 'Actresses',
     footer: 'AETHER — soft cinema archive',
   },
 } as const

@@ -124,6 +124,19 @@ export const api = {
       filterOptions: ActressFilterOptions
     }>(`/api/actresses?${p.toString()}`, locale)
   },
+  actressSearch: (q: string, locale: Locale, limit = 12) => {
+    const p = new URLSearchParams()
+    p.set('q', q)
+    p.set('locale', locale)
+    p.set('limit', String(limit))
+    return getJson<{
+      query: string
+      items: ActressSummary[]
+      count: number
+      matchedBy?: string
+      source?: string
+    }>(`/api/actresses/search?${p.toString()}`, locale)
+  },
   actressDetail: (slug: string, locale: Locale, page = 1, query?: VideoListQuery) => {
     const p = new URLSearchParams()
     p.set('locale', locale)
