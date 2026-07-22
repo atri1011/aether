@@ -18,14 +18,37 @@ import { defaultSortForCategory } from './videoListDefaults'
 
 async function getJson<T>(url: string, locale: Locale): Promise<T> {
   const res = await fetch(url, {
+    credentials: 'include',
     headers: { 'X-Locale': locale, Accept: 'application/json' },
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const msg = data?.error || res.statusText
-    throw new Error(msg)
+    const err = new Error(data?.error || res.statusText) as Error & {
+      code?: string
+      status?: number
+      remaining?: number
+      retryAfterSec?: number
+    }
+    err.code = data?.code
+    err.status = res.status
+    err.remaining = data?.remaining
+    err.retryAfterSec = data?.retryAfterSec
+    throw err
   }
   return data as T
+}
+
+export type AuthStatus = {
+  enabled: boolean
+  unlocked: boolean
+  expiresAt?: number | null
+}
+
+export type AuthLoginResult = {
+  ok?: boolean
+  unlocked: boolean
+  enabled?: boolean
+  expiresAt?: number | null
 }
 
 function withVideoQuery(base: string, locale: Locale, page: number, pageSize: number, q?: VideoListQuery) {
@@ -49,6 +72,46 @@ export type VideoListResponse = PagedResult<VideoSummary> & {
 }
 
 export const api = {
+  /** Public: whether gate is on + current session */
+  authStatus: (locale: Locale = 'zh') =>
+    getJson<AuthStatus>(`/api/auth/status?locale=${locale}`, locale),
+  authLogin: async (password: string, locale: Locale = 'zh') => {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'X-Locale': locale,
+      },
+      body: JSON.stringify({ password }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      const err = new Error(data?.error || res.statusText) as Error & {
+        code?: string
+        status?: number
+        remaining?: number
+        retryAfterSec?: number
+      }
+      err.code = data?.code
+      err.status = res.status
+      err.remaining = data?.remaining
+      err.retryAfterSec = data?.retryAfterSec
+      throw err
+    }
+    return data as AuthLoginResult
+  },
+  authLogout: async (locale: Locale = 'zh') => {
+    const res = await fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { Accept: 'application/json', 'X-Locale': locale },
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data?.error || res.statusText)
+    return data as { ok: boolean; unlocked: boolean }
+  },
   home: (locale: Locale) => getJson<HomePayload>(`/api/home?locale=${locale}`, locale),
   /** Deferred rails after first featured paint */
   homeMore: (locale: Locale) =>
@@ -138,6 +201,7 @@ export const api = {
   resolveStream: async (id: string, locale: Locale) => {
     const res = await fetch(`/api/video/${encodeURIComponent(id)}/resolve-stream`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'X-Locale': locale, Accept: 'application/json' },
     })
     const data = await res.json()

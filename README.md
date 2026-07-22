@@ -33,7 +33,20 @@ CACHE_DIR=./.cache/aether
 RECOMBEE_PUBLIC_TOKEN=...
 MISS_DETAIL_BASES=https://missav.ai,https://missav.ws
 MISS_LANG=zh
+
+# Access gate (recommended on public VPS)
+SITE_PASSWORD=your-strong-passphrase
+AUTH_SECRET=long-random-string          # optional but recommended; HMAC key for session cookies
+AUTH_TTL_HOURS=168                      # session lifetime, default 7 days
+AUTH_SECURE_COOKIE=1                    # set Secure cookie flag (use behind HTTPS)
 ```
+
+### Access gate
+
+- Leave `SITE_PASSWORD` empty → site is open (local dev default).
+- Set `SITE_PASSWORD` → full-screen passphrase wall; **all `/api/*` routes** (except health/auth) require a server-signed **HttpOnly** session cookie.
+- Password never ships to the frontend. Deleting the gate UI / flipping React state cannot unlock APIs.
+- Login is rate-limited per IP (6 tries / 15 min → temporary lock).
 
 ## Notes
 

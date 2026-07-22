@@ -34,9 +34,9 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
-        // playlist/segments already same-origin via /api/hls
+        // same-origin /api/hls — send session cookie when site gate is on
         xhrSetup: (xhr) => {
-          xhr.withCredentials = false
+          xhr.withCredentials = true
         },
       })
       hlsRef.current = hls

@@ -3,6 +3,13 @@ import cors from 'cors'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { config } from './config.js'
+import {
+  authEnabled,
+  handleAuthLogin,
+  handleAuthLogout,
+  handleAuthStatus,
+  requireAuth,
+} from './auth.js'
 import { cacheGet, cacheGetEntry, cacheGetStale, cacheSet } from './cache.js'
 import {
   recommendByGenre,
@@ -42,8 +49,22 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
-app.use(cors())
+// Same-origin via Vite proxy / production static; credentials need a real origin, not *.
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  }),
+)
 app.use(express.json({ limit: '1mb' }))
+
+// Auth gate — must run before protected API routes.
+// SPA shell can still load; content/APIs stay locked without a valid session cookie.
+app.use(requireAuth)
+
+app.get('/api/auth/status', handleAuthStatus)
+app.post('/api/auth/login', handleAuthLogin)
+app.post('/api/auth/logout', handleAuthLogout)
 
 // warm media worker early
 ensureMediaWorker().then((ok) => {
@@ -1140,6 +1161,13 @@ function warmPopularCategories() {
 
 const server = app.listen(config.port, () => {
   console.log(`[aether] ${config.siteName} api on http://localhost:${config.port}`)
+  if (authEnabled()) {
+    console.log(
+      `[aether] access gate ON (cookie session, ttl ${Math.round(config.authTtlMs / 3600000)}h)`,
+    )
+  } else {
+    console.log('[aether] access gate OFF — set SITE_PASSWORD to enable')
+  }
   warmPopularCategories()
 })
 

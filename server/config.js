@@ -18,6 +18,21 @@ export const config = {
     .filter(Boolean),
   detailLang: process.env.MISS_LANG || 'zh',
   siteName: process.env.SITE_NAME || 'AETHER',
+  /**
+   * Site access gate (server-side).
+   * - Empty SITE_PASSWORD → gate disabled (open site).
+   * - Set SITE_PASSWORD to enable; never embed the value in the frontend.
+   * - AUTH_SECRET: optional HMAC key for session cookies (recommended in prod).
+   * - AUTH_TTL_HOURS: session lifetime (default 7 days).
+   * - AUTH_SECURE_COOKIE=1: set Secure flag (use behind HTTPS).
+   */
+  sitePassword: process.env.SITE_PASSWORD || '',
+  authSecret: process.env.AUTH_SECRET || '',
+  authTtlMs: Math.max(1, Number(process.env.AUTH_TTL_HOURS) || 168) * 60 * 60 * 1000,
+  authSecureCookie:
+    process.env.AUTH_SECURE_COOKIE === '1' ||
+    process.env.AUTH_SECURE_COOKIE === 'true' ||
+    process.env.NODE_ENV === 'production',
   ttl: {
     home: 15 * 60 * 1000,
     search: 10 * 60 * 1000,
