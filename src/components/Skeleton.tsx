@@ -71,3 +71,19 @@ export function WatchSkeleton() {
     </div>
   )
 }
+
+export function ActressRailSkeleton({ count = 6 }: { count?: number }) {
+  return (
+    <div className="actress-rail-track" aria-hidden="true">
+      {Array.from({ length: count }, (_, i) => (
+        <div className="actress-rail-item" key={i} style={{ textAlign: 'center' }}>
+          <div className="skeleton skeleton-avatar" style={{ width: 88, height: 88, margin: '0 auto' }} />
+          <div
+            className="skeleton skeleton-line"
+            style={{ width: '4.5rem', margin: '0.55rem auto 0' }}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}

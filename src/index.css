@@ -1331,6 +1331,58 @@ img {
   line-height: 1.35;
 }
 
+/* ── Actress search rail ───────────────────────────────── */
+
+.actress-rail {
+  margin-bottom: 0.25rem;
+}
+
+.actress-rail-track {
+  display: flex;
+  gap: 1rem 0.85rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  padding: 0.15rem 0.1rem 0.85rem;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.actress-rail-track::-webkit-scrollbar {
+  height: 6px;
+}
+
+.actress-rail-track::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ink-dim) 55%, transparent);
+  border-radius: 999px;
+}
+
+.actress-rail-item {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  width: 112px;
+}
+
+.actress-rail-item .actress-avatar {
+  width: 88px;
+  height: 88px;
+}
+
+.actress-rail-item .actress-name {
+  max-width: 7rem;
+  font-size: 0.84rem;
+}
+
+@media (max-width: 640px) {
+  .actress-rail-item {
+    width: 100px;
+  }
+  .actress-rail-item .actress-avatar {
+    width: 80px;
+    height: 80px;
+  }
+}
+
 .actress-hero {
   display: grid;
   grid-template-columns: auto 1fr;
