@@ -5,6 +5,7 @@ import type { VideoDetail } from '../types'
 import { useLocale } from '../context'
 import { Player } from '../components/Player'
 import { VideoGrid } from '../components/VideoGrid'
+import { WatchSkeleton } from '../components/Skeleton'
 
 function toMasterUrl(input: string) {
   const v = input.trim()
@@ -54,7 +55,7 @@ export function WatchPage() {
     return video?.stream?.masterUrl || null
   }, [overrideSrc, video])
 
-  if (loading) return <div className="state">{tr('loading')}</div>
+  if (loading) return <WatchSkeleton />
   if (error) return <div className="state error">{error}</div>
   if (!video) return <div className="state">{tr('empty')}</div>
 

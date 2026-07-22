@@ -5,6 +5,7 @@ import type { ActressFilterOptions, ActressListFilters, ActressSummary } from '.
 import { useLocale } from '../context'
 import { ActressCard } from '../components/ActressCard'
 import { InfiniteSentinel } from '../components/InfiniteSentinel'
+import { ActressSkeletonGrid } from '../components/Skeleton'
 
 function filtersFromParams(sp: URLSearchParams): ActressListFilters {
   return {
@@ -227,13 +228,13 @@ export function ActressesPage() {
       </section>
 
       <section className="section">
-        {loading && <div className="state">{tr('loading')}</div>}
+        {loading && !items.length && <ActressSkeletonGrid count={isRanking ? 20 : 16} />}
         {error && !items.length && <div className="state error">{error}</div>}
         {!loading && !error && !items.length && <div className="state">{tr('empty')}</div>}
         {items.length > 0 && (
           <div className={`actress-grid${isRanking ? ' ranking' : ''}`}>
-            {items.map((a) => (
-              <ActressCard key={a.slug} actress={a} />
+            {items.map((a, i) => (
+              <ActressCard key={a.slug} actress={a} index={i} />
             ))}
           </div>
         )}

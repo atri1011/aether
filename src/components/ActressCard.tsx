@@ -2,7 +2,13 @@ import { Link } from 'react-router-dom'
 import type { ActressSummary } from '../types'
 import { useLocale } from '../context'
 
-export function ActressCard({ actress }: { actress: ActressSummary }) {
+export function ActressCard({
+  actress,
+  index = 0,
+}: {
+  actress: ActressSummary
+  index?: number
+}) {
   const { tr } = useLocale()
   const to = `/actress/${encodeURIComponent(actress.slug)}`
   const subParts: string[] = []
@@ -19,7 +25,11 @@ export function ActressCard({ actress }: { actress: ActressSummary }) {
   }
 
   return (
-    <Link className="actress-card" to={to}>
+    <Link
+      className="actress-card"
+      to={to}
+      style={{ ['--i' as string]: Math.min(index, 12) }}
+    >
       <div className="actress-avatar">
         {actress.rank != null && <span className="actress-rank">#{actress.rank}</span>}
         <img

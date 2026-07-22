@@ -8,6 +8,7 @@ import { InfiniteSentinel } from '../components/InfiniteSentinel'
 import { usePagedList } from '../hooks/usePagedList'
 import { VideoFilterBar } from '../components/VideoFilterBar'
 import { useVideoListQuery } from '../hooks/useVideoListQuery'
+import { VideoSkeletonGrid } from '../components/Skeleton'
 
 export function SearchPage() {
   const { locale, tr } = useLocale()
@@ -56,7 +57,6 @@ export function SearchPage() {
   ])
 
   if (!q) return <div className="state">{tr('searchPlaceholder')}</div>
-  if (loading && !items.length) return <div className="state">{tr('loading')}</div>
   if (error && !items.length) return <div className="state error">{error}</div>
 
   return (
@@ -68,7 +68,13 @@ export function SearchPage() {
         <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
       </div>
       <VideoFilterBar options={filterOptions} value={query} onChange={setQuery} />
-      {items.length ? <VideoGrid items={items} /> : <div className="state">{tr('empty')}</div>}
+      {loading && !items.length ? (
+        <VideoSkeletonGrid count={12} />
+      ) : items.length ? (
+        <VideoGrid items={items} />
+      ) : (
+        <div className="state">{tr('empty')}</div>
+      )}
       <InfiniteSentinel
         onVisible={loadMore}
         disabled={!hasMore}

@@ -8,6 +8,7 @@ import { InfiniteSentinel } from '../components/InfiniteSentinel'
 import { usePagedList } from '../hooks/usePagedList'
 import { VideoFilterBar } from '../components/VideoFilterBar'
 import { useVideoListQuery } from '../hooks/useVideoListQuery'
+import { VideoSkeletonGrid } from '../components/Skeleton'
 
 export function ActressDetailPage() {
   const { slug: rawSlug = '' } = useParams()
@@ -109,7 +110,7 @@ export function ActressDetailPage() {
           <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
         </div>
         <VideoFilterBar options={filterOptions} value={query} onChange={setQuery} />
-        {loading && !items.length && <div className="state">{tr('loading')}</div>}
+        {loading && !items.length && <VideoSkeletonGrid count={12} />}
         {error && !items.length && <div className="state error">{error}</div>}
         {!(!loading && !error) ? null : (
           <>

@@ -2,9 +2,13 @@ import { Link } from 'react-router-dom'
 import type { VideoSummary } from '../types'
 import { formatDuration } from '../lib/api'
 
-export function VideoCard({ video }: { video: VideoSummary }) {
+export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: number }) {
   return (
-    <Link className="card" to={`/v/${encodeURIComponent(video.id)}`}>
+    <Link
+      className="card"
+      to={`/v/${encodeURIComponent(video.id)}`}
+      style={{ ['--i' as string]: Math.min(index, 12) }}
+    >
       <div className="card-cover">
         <img
           src={video.coverUrl}
@@ -30,6 +34,10 @@ export function VideoCard({ video }: { video: VideoSummary }) {
             }
           }}
         />
+        <span className="card-play" aria-hidden="true" />
+        {video.durationSec != null && video.durationSec > 0 && (
+          <span className="card-duration">{formatDuration(video.durationSec)}</span>
+        )}
         <span className="card-code">{video.code}</span>
       </div>
       <div className="card-title">{video.title || video.code}</div>

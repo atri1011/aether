@@ -41,6 +41,7 @@ export function InfiniteSentinel({
         disabled={disabled || loading}
         onClick={() => onVisible()}
       >
+        {loading && <span className="btn-spinner" aria-hidden="true" />}
         {loading ? loadingLabel : label}
       </button>
     </div>

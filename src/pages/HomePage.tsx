@@ -4,6 +4,7 @@ import { api, formatDate, formatDuration } from '../lib/api'
 import type { HomePayload } from '../types'
 import { useLocale } from '../context'
 import { VideoGrid } from '../components/VideoGrid'
+import { HomeSkeleton } from '../components/Skeleton'
 
 export function HomePage() {
   const { locale, tr } = useLocale()
@@ -31,7 +32,7 @@ export function HomePage() {
     }
   }, [locale, tr])
 
-  if (loading) return <div className="state">{tr('loading')}</div>
+  if (loading) return <HomeSkeleton />
   if (error) return <div className="state error">{error}</div>
   if (!data) return <div className="state">{tr('empty')}</div>
 
