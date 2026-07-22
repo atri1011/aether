@@ -70,7 +70,12 @@ export function WatchPage() {
             poster={video.coverUrl}
             theatre={theatre}
             onToggleTheatre={() => setTheatre((v) => !v)}
-            labels={{ theatre: tr('theatre'), exitTheatre: tr('exitTheatre') }}
+            labels={{
+              theatre: tr('theatre'),
+              exitTheatre: tr('exitTheatre'),
+              quality: tr('quality'),
+              qualityAuto: tr('qualityAuto'),
+            }}
           />
           {!src && (
             <p className="card-sub" style={{ marginTop: '0.75rem' }}>
