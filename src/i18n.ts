@@ -61,6 +61,8 @@ const dict = {
     actressStats: '身材',
     actressBirthday: '生日',
     actressMatches: '相关女优',
+    badgeUncensored: '无码',
+    badgeChinese: '中文',
     footer: 'AETHER — soft cinema archive',
   },
   en: {
@@ -123,6 +125,8 @@ const dict = {
     actressStats: 'Stats',
     actressBirthday: 'Birthday',
     actressMatches: 'Actresses',
+    badgeUncensored: '无码',
+    badgeChinese: '中文',
     footer: 'AETHER — soft cinema archive',
   },
 } as const

@@ -931,6 +931,52 @@ img {
   color: var(--ink);
 }
 
+/* MissAV-style content tags: true bottom-right corner of cover */
+.card-badges {
+  position: absolute;
+  right: 0.4rem;
+  bottom: 0.4rem;
+  z-index: 5;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.28rem;
+  max-width: calc(100% - 0.8rem);
+  pointer-events: none;
+}
+
+.card:hover .card-badges,
+.card:focus-visible .card-badges,
+.card.is-previewing .card-badges {
+  z-index: 6;
+}
+
+.card-badge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  padding: 0.28rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+}
+
+.card-badge--uncensored {
+  /* MissAV "无码" — warm red */
+  background: rgba(220, 38, 38, 0.92);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.card-badge--chinese {
+  /* MissAV "中文" — blue */
+  background: rgba(37, 99, 235, 0.94);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
 .card:hover .card-code,
 .card:focus-visible .card-code {
   color: var(--accent-soft);

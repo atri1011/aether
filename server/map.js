@@ -46,7 +46,22 @@ function displayCode(id) {
 
 export function mapSummary(item, locale = 'zh') {
   const v = item.values || {}
-  const id = item.id
+  const id = String(item.id || '')
+  const idLower = id.toLowerCase()
+  // Prefer Recombee flags; fall back to MissAV-style id suffixes.
+  const hasChineseSubtitle =
+    Boolean(v.has_chinese_subtitle) || /chinese-subtitle/i.test(idLower)
+  const hasEnglishSubtitle =
+    Boolean(v.has_english_subtitle) || /english-subtitle/i.test(idLower)
+  const isUncensoredLeak =
+    Boolean(v.is_uncensored_leak) || /uncensored/i.test(idLower)
+  const type =
+    v.type ||
+    (hasChineseSubtitle
+      ? 'chinese-subtitle'
+      : isUncensoredLeak
+        ? 'uncensored-leak'
+        : 'unknown')
   return {
     id,
     code: displayCode(id),
@@ -60,10 +75,10 @@ export function mapSummary(item, locale = 'zh') {
     genres: v.genres || [],
     tags: v.tags || [],
     labels: v.labels || [],
-    type: v.type || 'unknown',
-    hasChineseSubtitle: Boolean(v.has_chinese_subtitle),
-    hasEnglishSubtitle: Boolean(v.has_english_subtitle),
-    isUncensoredLeak: Boolean(v.is_uncensored_leak),
+    type,
+    hasChineseSubtitle,
+    hasEnglishSubtitle,
+    isUncensoredLeak,
   }
 }
 

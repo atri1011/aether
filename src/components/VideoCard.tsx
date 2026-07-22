@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { VideoSummary } from '../types'
 import { formatDuration } from '../lib/api'
+import { useLocale } from '../context'
 
 /** Strip locale / leak suffixes so fourhoi cover/preview paths resolve. */
 function mediaCode(id: string) {
@@ -27,6 +28,7 @@ function previewUrlFor(id: string) {
 
 export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: number }) {
   const navigate = useNavigate()
+  const { tr } = useLocale()
   const videoRef = useRef<HTMLVideoElement>(null)
   const [previewing, setPreviewing] = useState(false)
   const [previewReady, setPreviewReady] = useState(false)
@@ -36,6 +38,21 @@ export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: n
 
   const detailPath = `/v/${encodeURIComponent(video.id)}`
   const previewSrc = previewUrlFor(video.id)
+
+  // MissAV-style corner tags: prefer API flags, fall back to id suffixes.
+  const flags = useMemo(() => {
+    const id = String(video.id || '').toLowerCase()
+    const uncensored =
+      Boolean(video.isUncensoredLeak) ||
+      /uncensored/i.test(id) ||
+      video.type === 'uncensored' ||
+      video.type === 'uncensored-leak'
+    const chinese =
+      Boolean(video.hasChineseSubtitle) ||
+      /chinese-subtitle/i.test(id) ||
+      video.type === 'chinese-subtitle'
+    return { uncensored, chinese }
+  }, [video.hasChineseSubtitle, video.id, video.isUncensoredLeak, video.type])
 
   const sub = [
     formatDuration(video.durationSec),
@@ -220,6 +237,18 @@ export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: n
           <span className="card-duration">{formatDuration(video.durationSec)}</span>
         )}
         <span className="card-code">{video.code}</span>
+
+        {/* MissAV-style corner tags (bottom-right) */}
+        {(flags.uncensored || flags.chinese) && (
+          <div className="card-badges" aria-hidden="true">
+            {flags.uncensored && (
+              <span className="card-badge card-badge--uncensored">{tr('badgeUncensored')}</span>
+            )}
+            {flags.chinese && (
+              <span className="card-badge card-badge--chinese">{tr('badgeChinese')}</span>
+            )}
+          </div>
+        )}
 
         {/* Always-readable meta (mobile + resting state) */}
         <div className="card-meta">
