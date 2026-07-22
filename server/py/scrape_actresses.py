@@ -83,6 +83,32 @@ def _clean_text(s: str) -> str:
     )
 
 
+def normalize_name(s: str) -> str:
+    """Lowercase + strip spaces/separators for fuzzy compare."""
+    s = _clean_text(s or "").lower()
+    for ch in (" ", "　", "·", "・", "-", "_", ".", "　"):
+        s = s.replace(ch, "")
+    return s
+
+
+def fuzzy_score(query: str, name: str, slug: str = "") -> int:
+    """0 = no match; higher = better. Exact > prefix > substring; slug weaker than name."""
+    q = normalize_name(query)
+    if not q:
+        return 0
+    n = normalize_name(name)
+    sl = normalize_name(slug.replace("-", " "))
+    if n and n == q:
+        return 100
+    if n and n.startswith(q):
+        return 80
+    if n and q in n:
+        return 50
+    if sl and (sl == q or sl.startswith(q) or q in sl):
+        return 40
+    return 0
+
+
 def parse_actress_cards(html: str) -> list[dict]:
     """Parse actress directory / ranking cards from HTML."""
     by_slug: dict[str, dict] = {}
@@ -453,11 +479,101 @@ def scrape_detail(
     return result
 
 
+def scrape_search(q: str, locale: str = "zh", limit: int = 12) -> dict:
+    """Fuzzy actress search: try keyword list URLs, then filter multi-page directory."""
+    q = _clean_text(q or "")
+    if not q:
+        return {"ok": False, "error": "q required", "items": [], "count": 0}
+    try:
+        limit = max(1, min(int(limit or 12), 24))
+    except (TypeError, ValueError):
+        limit = 12
+
+    loc = normalize_locale(locale)
+    scored: dict[str, tuple[int, dict]] = {}
+
+    def ingest(items: list[dict]):
+        for it in items or []:
+            slug = (it.get("slug") or "").strip()
+            if not slug:
+                continue
+            sc = fuzzy_score(q, it.get("name") or "", slug)
+            if sc <= 0:
+                continue
+            prev = scored.get(slug)
+            # keep higher score; tie-break richer videoCount
+            if prev is None or sc > prev[0]:
+                scored[slug] = (sc, it)
+            elif sc == prev[0]:
+                pv = prev[1].get("videoCount")
+                cv = it.get("videoCount")
+                if cv is not None and (pv is None or cv > pv):
+                    scored[slug] = (sc, it)
+
+    # 1) Probe keyword-style actress listing URLs (best effort)
+    encoded_q = quote(q, safe="")
+    probe_paths = [
+        f"actresses?q={encoded_q}",
+        f"actresses?keyword={encoded_q}",
+        f"search/{encoded_q}",
+    ]
+    # candidate_urls expects path without leading ? — use path + query via query dict instead
+    for page in (1,):
+        urls = candidate_urls("actresses", page, loc, {"q": q})
+        urls += candidate_urls("actresses", page, loc, {"keyword": q})
+        # Also try site search pages that might embed actress cards
+        for host in bases():
+            sl = site_locale(loc)
+            if sl == "cn":
+                urls.append(f"{host}/cn/search/{encoded_q}")
+                urls.append(f"{host}/search/{encoded_q}")
+            else:
+                urls.append(f"{host}/{sl}/search/{encoded_q}")
+
+        def parse_probe(html: str):
+            items = parse_actress_cards(html)
+            return {"items": items} if items else None
+
+        probed = fetch_first_ok(urls, parse_probe)
+        if probed.get("ok"):
+            ingest(probed.get("items") or [])
+
+    # 2) Fallback: first pages of actress directory sorted by videos
+    if len(scored) < limit:
+        for page in (1, 2, 3):
+            listed = scrape_list(page, loc, sort="videos")
+            if not listed.get("ok"):
+                break
+            ingest(listed.get("items") or [])
+            if len(scored) >= limit * 2:
+                break
+
+    ranked = sorted(
+        scored.values(),
+        key=lambda pair: (
+            -pair[0],
+            -(pair[1].get("videoCount") or -1),
+            pair[1].get("name") or "",
+        ),
+    )
+    items = [it for _, it in ranked[:limit]]
+    return {
+        "ok": True,
+        "query": q,
+        "items": items,
+        "count": len(items),
+        "mode": "search",
+        "source": "scrape",
+        "locale": loc,
+    }
+
+
 def main():
     # argv: mode [args...]
     # list: list page locale sort height cup age debut
     # ranking: ranking locale
     # detail: detail slug page locale sort filter
+    # search: search q locale limit
     mode = sys.argv[1] if len(sys.argv) > 1 else "list"
     sys.stdout.reconfigure(encoding="utf-8")
 
@@ -471,6 +587,11 @@ def main():
         sort = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] not in {"-", ""} else None
         filt = sys.argv[6] if len(sys.argv) > 6 and sys.argv[6] not in {"-", ""} else None
         result = scrape_detail(slug, page, locale, sort=sort, filt=filt)
+    elif mode == "search":
+        q = sys.argv[2] if len(sys.argv) > 2 else ""
+        locale = sys.argv[3] if len(sys.argv) > 3 else "zh"
+        limit = int(sys.argv[4]) if len(sys.argv) > 4 else 12
+        result = scrape_search(q, locale, limit)
     else:
         page = int(sys.argv[2]) if len(sys.argv) > 2 else 1
         locale = sys.argv[3] if len(sys.argv) > 3 else "zh"
