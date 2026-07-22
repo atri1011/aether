@@ -8,8 +8,15 @@ const pyDir = path.join(__dirname, 'py')
 function runPython(script, args = [], { timeoutMs = 45000 } = {}) {
   return new Promise((resolve, reject) => {
     const scriptPath = path.join(pyDir, script)
+    // Windows default console code page (GBK) would corrupt CJK in JSON stdout.
+    // Force UTF-8 pipes so Node's utf8 decode matches Python's print().
     const child = spawn('python', [scriptPath, ...args], {
       windowsHide: true,
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONUTF8: '1',
+      },
     })
     let stdout = ''
     let stderr = ''
@@ -117,5 +124,16 @@ export function pyScrapeActressesSearch(opts = {}) {
     'scrape_actresses.py',
     ['search', String(q || ''), loc, String(lim)],
     { timeoutMs: 60000 },
+  )
+}
+
+/** Genres / makers catalog index pages (MissAV /genres, /makers) */
+export function pyScrapeCatalog(kind = 'genres', page = 1, locale = 'zh') {
+  const k = String(kind || 'genres').toLowerCase() === 'makers' ? 'makers' : 'genres'
+  const loc = String(locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
+  return runPython(
+    'scrape_catalog.py',
+    [k, String(page || 1), loc],
+    { timeoutMs: 50000 },
   )
 }

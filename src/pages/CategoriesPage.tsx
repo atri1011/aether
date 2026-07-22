@@ -13,7 +13,12 @@ import { CategoryChipGrid } from '../components/CategoryChipGrid'
 
 export function CategoriesPage() {
   const { locale, tr } = useLocale()
-  const { slug } = useParams()
+  const params = useParams()
+  // Nested /c/genres/:name or flat /c/:slug
+  const slug =
+    params.kind && params.name
+      ? `${params.kind}/${params.name}`
+      : params.slug
   const [cats, setCats] = useState<CategoryItem[]>([])
   const [title, setTitle] = useState('')
   const [filterOptions, setFilterOptions] = useState<VideoFilterOptions | null>(null)

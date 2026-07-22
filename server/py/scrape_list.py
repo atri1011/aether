@@ -394,10 +394,13 @@ def main():
     if sort in {"-", ""}:
         sort = None
 
-    # genres/Creampie or search/keyword style
+    # genres/Creampie, makers/S1, search/keyword style
     if path.startswith("genres/"):
         rest = path.split("/", 1)[1]
         path = "genres/" + unquote(rest)
+    elif path.startswith("makers/"):
+        rest = path.split("/", 1)[1]
+        path = "makers/" + unquote(rest)
     elif path.startswith("search/"):
         rest = path.split("/", 1)[1]
         # keep encoded form for URL; scrape re-encodes via path as-is
@@ -407,8 +410,10 @@ def main():
         path = "actresses/" + unquote(rest)
 
     result = scrape(path, page, locale, filters=filters, sort=sort)
-    sys.stdout.reconfigure(encoding="utf-8")
-    print(json.dumps(result, ensure_ascii=False))
+    # Binary UTF-8 write — avoids Windows GBK console mangling CJK JSON
+    payload = json.dumps(result, ensure_ascii=False).encode("utf-8") + b"\n"
+    sys.stdout.buffer.write(payload)
+    sys.stdout.buffer.flush()
     sys.exit(0 if result.get("ok") else 1)
 
 

@@ -71,15 +71,36 @@ export const api = {
       `/api/categories?locale=${locale}`,
       locale,
     ),
-  genres: (locale: Locale) =>
-    getJson<{ title: string; items: CategoryItem[] }>(`/api/genres?locale=${locale}`, locale),
-  makers: (locale: Locale) =>
-    getJson<{ title: string; items: CategoryItem[] }>(`/api/makers?locale=${locale}`, locale),
-  category: (slug: string, locale: Locale, page = 1, pageSize = 24, query?: VideoListQuery) =>
-    getJson<VideoListResponse>(
-      withVideoQuery(`/api/c/${encodeURIComponent(slug)}`, locale, page, pageSize, query),
+  genres: (locale: Locale, page = 1) =>
+    getJson<{
+      title: string
+      items: CategoryItem[]
+      page?: number
+      maxPage?: number
+      hasMore?: boolean
+      source?: string
+    }>(`/api/genres?locale=${locale}&page=${page}`, locale),
+  makers: (locale: Locale, page = 1) =>
+    getJson<{
+      title: string
+      items: CategoryItem[]
+      page?: number
+      maxPage?: number
+      hasMore?: boolean
+      source?: string
+    }>(`/api/makers?locale=${locale}&page=${page}`, locale),
+  category: (slug: string, locale: Locale, page = 1, pageSize = 24, query?: VideoListQuery) => {
+    // Nested catalog slugs: genres/中出 → /api/c/genres/%E4%B8%AD%E5%87%BA
+    const path = String(slug || '')
+      .split('/')
+      .filter(Boolean)
+      .map((s) => encodeURIComponent(s))
+      .join('/')
+    return getJson<VideoListResponse>(
+      withVideoQuery(`/api/c/${path}`, locale, page, pageSize, query),
       locale,
-    ),
+    )
+  },
   searchPage: (q: string, locale: Locale, page = 1, pageSize = 24, query?: VideoListQuery) =>
     getJson<VideoListResponse>(
       (() => {

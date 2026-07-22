@@ -73,6 +73,9 @@ export interface CategoryItem {
   title: string
   filter?: string
   kind?: string
+  /** Video count from MissAV catalog pages */
+  count?: number | null
+  listPath?: string
 }
 
 export interface ActressSummary {

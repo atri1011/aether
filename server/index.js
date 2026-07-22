@@ -19,6 +19,7 @@ import {
   CATEGORY_GROUPS,
   categoriesBySlugs,
   findCategory,
+  resolveCategory,
 } from './categories.js'
 import {
   pyScrapeList,
@@ -26,6 +27,7 @@ import {
   pyScrapeActressesRanking,
   pyScrapeActressDetail,
   pyScrapeActressesSearch,
+  pyScrapeCatalog,
 } from './pybridge.js'
 import { handleHlsProxy, toProxiedStream } from './hlsProxy.js'
 import { ensureMediaWorker, stopMediaWorker } from './mediaWorker.js'
@@ -439,27 +441,92 @@ app.get('/api/categories', async (req, res) => {
   })
 })
 
-app.get('/api/genres', (req, res) => {
-  const locale = localeOf(req)
-  const group = CATEGORY_GROUPS.genres
-  res.json({
-    title: locale === 'en' ? group.titleEn : group.titleZh,
-    items: categoriesBySlugs(group.slugs, locale),
+/**
+ * Map scraped MissAV catalog rows → CategoryItem chips.
+ * slug is path-style so /c/genres/中出 resolves via resolveCategory.
+ */
+function mapCatalogItems(kind, rows) {
+  return (rows || []).map((row) => {
+    const name = String(row.name || row.title || '').trim()
+    const title = String(row.title || name).trim()
+    return {
+      slug: `${kind}/${name}`,
+      title,
+      kind: 'scrape',
+      count: typeof row.count === 'number' ? row.count : null,
+      listPath: row.listPath || `${kind}/${name}`,
+    }
   })
+}
+
+async function loadCatalogIndex(kind, locale, page = 1) {
+  const group = CATEGORY_GROUPS[kind] || CATEGORY_GROUPS.genres
+  const title = locale === 'en' ? group.titleEn : group.titleZh
+  try {
+    const scraped = await pyScrapeCatalog(kind, page, locale)
+    if (scraped?.ok && scraped.items?.length) {
+      return {
+        title,
+        items: mapCatalogItems(kind, scraped.items),
+        page: scraped.page || page,
+        maxPage: scraped.maxPage || page,
+        hasMore: Boolean(scraped.hasMore),
+        source: 'scrape',
+        url: scraped.url,
+      }
+    }
+  } catch {
+    // fall through to static fallback
+  }
+  // Static fallback (sidebar studios / popular genres)
+  return {
+    title,
+    items: categoriesBySlugs(group.slugs, locale),
+    page: 1,
+    maxPage: 1,
+    hasMore: false,
+    source: 'static',
+  }
+}
+
+app.get('/api/genres', async (req, res) => {
+  const locale = localeOf(req)
+  const page = Math.max(1, Number(req.query.page) || 1)
+  const key = `catalog:genres:v2:${locale}:${page}`
+  try {
+    const { data, cache } = await withCache(key, config.ttl.categories, () =>
+      loadCatalogIndex('genres', locale, page),
+    )
+    res.setHeader('X-Aether-Cache', cache)
+    res.json(data)
+  } catch (e) {
+    sendError(res, 503, 'UPSTREAM', e.message, e.details)
+  }
 })
 
-app.get('/api/makers', (req, res) => {
+app.get('/api/makers', async (req, res) => {
   const locale = localeOf(req)
-  const group = CATEGORY_GROUPS.makers
-  res.json({
-    title: locale === 'en' ? group.titleEn : group.titleZh,
-    items: categoriesBySlugs(group.slugs, locale),
-  })
+  const page = Math.max(1, Number(req.query.page) || 1)
+  const key = `catalog:makers:v2:${locale}:${page}`
+  try {
+    const { data, cache } = await withCache(key, config.ttl.categories, () =>
+      loadCatalogIndex('makers', locale, page),
+    )
+    res.setHeader('X-Aether-Cache', cache)
+    res.json(data)
+  } catch (e) {
+    sendError(res, 503, 'UPSTREAM', e.message, e.details)
+  }
 })
 
-app.get('/api/c/:slug', async (req, res) => {
+// Support nested catalog slugs: /api/c/genres/中出  and  /api/c/makers/S1
+app.get(['/api/c/:slug', '/api/c/:kind/:name'], async (req, res) => {
   const locale = localeOf(req)
-  const cat = findCategory(req.params.slug)
+  const rawSlug =
+    req.params.kind && req.params.name
+      ? `${req.params.kind}/${req.params.name}`
+      : req.params.slug
+  const cat = resolveCategory(rawSlug) || findCategory(rawSlug)
   if (!cat) return sendError(res, 404, 'NOT_FOUND', 'unknown category')
   const page = Math.max(1, Number(req.query.page) || 1)
   const pageSize = Math.min(48, Math.max(1, Number(req.query.pageSize) || 24))
@@ -472,7 +539,7 @@ app.get('/api/c/:slug', async (req, res) => {
         : DEFAULT_SORT.default
   const sort = sanitizeVideoSort(req.query.sort, defaultSort)
   const count = page * pageSize
-  const key = `cat:v8:${locale}:${cat.slug}:${page}:${pageSize}:${filters}:${sort}`
+  const key = `cat:v9:${locale}:${cat.slug}:${page}:${pageSize}:${filters}:${sort}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       const category = {
@@ -494,7 +561,7 @@ app.get('/api/c/:slug', async (req, res) => {
         ...extra,
       })
 
-      // 1) HTML scrape for list pages (incl. genre listPath)
+      // 1) HTML scrape for list pages (incl. genre/maker listPath)
       const listPath = cat.listPath || (cat.kind === 'scrape' ? cat.slug : null)
       if (listPath) {
         try {

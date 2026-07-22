@@ -25,6 +25,8 @@ export default function App() {
             <Route path="genres" element={<GenresPage />} />
             <Route path="makers" element={<MakersPage />} />
             <Route path="categories" element={<CategoriesPage />} />
+            {/* Nested MissAV catalog: /c/genres/中出  /c/makers/S1 */}
+            <Route path="c/:kind/:name" element={<CategoriesPage />} />
             <Route path="c/:slug" element={<CategoriesPage />} />
             <Route path="v/:id" element={<WatchPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -985,6 +985,158 @@ img {
   box-shadow: 0 4px 14px rgba(91, 106, 232, 0.28);
 }
 
+.chip-count {
+  margin-left: 0.4rem;
+  font-size: 0.68rem;
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
+
+.chip.active .chip-count {
+  opacity: 0.8;
+}
+
+/* ── Page pager (MissAV-style) ─────────────────────────── */
+
+.page-pager {
+  margin-top: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.page-pager-mobile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.page-pager-desktop {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+@media (min-width: 768px) {
+  .page-pager-mobile {
+    display: none;
+  }
+  .page-pager-desktop {
+    display: inline-flex;
+  }
+}
+
+.page-pager-btn {
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--ink-dim);
+  border-radius: var(--radius-pill);
+  padding: 0.48rem 0.95rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-2) ease,
+    color var(--dur-2) ease,
+    background var(--dur-2) ease;
+}
+
+.page-pager-btn:hover:not(:disabled) {
+  border-color: rgba(124, 140, 255, 0.4);
+  color: var(--ink);
+}
+
+.page-pager-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.page-pager-num {
+  min-width: 2.2rem;
+  height: 2.2rem;
+  padding: 0 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background var(--dur-2) ease,
+    color var(--dur-2) ease,
+    border-color var(--dur-2) ease;
+}
+
+.page-pager-num:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+}
+
+.page-pager-num.active {
+  background: linear-gradient(165deg, var(--accent), var(--accent-deep));
+  color: #f5f7ff;
+  border-color: transparent;
+  cursor: default;
+  box-shadow: 0 4px 14px rgba(91, 106, 232, 0.28);
+}
+
+.page-pager-num:disabled:not(.active) {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.page-pager-ellipsis {
+  min-width: 1.5rem;
+  text-align: center;
+  color: var(--ink-dim);
+  opacity: 0.55;
+  user-select: none;
+}
+
+.page-pager-jump {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.page-pager-jump input {
+  width: 5.5rem;
+  appearance: none;
+  border: 1px solid var(--glass-border);
+  border-radius: 0.55rem;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--ink);
+  padding: 0.45rem 2.4rem 0.45rem 0.7rem;
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  transition: border-color var(--dur-2) ease;
+}
+
+.page-pager-jump input:focus {
+  border-color: rgba(124, 140, 255, 0.55);
+}
+
+.page-pager-total {
+  position: absolute;
+  right: 0.55rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+  opacity: 0.7;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.page-pager-jump-desktop {
+  margin-left: 0.55rem;
+}
+
 /* ── States ────────────────────────────────────────────── */
 
 .state {
