@@ -61,7 +61,8 @@ export interface HomePayload {
 export interface CategoryItem {
   slug: string
   title: string
-  filter: string
+  filter?: string
+  kind?: string
 }
 
 export interface ActressSummary {

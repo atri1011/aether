@@ -67,6 +67,10 @@ export const api = {
       `/api/categories?locale=${locale}`,
       locale,
     ),
+  genres: (locale: Locale) =>
+    getJson<{ title: string; items: CategoryItem[] }>(`/api/genres?locale=${locale}`, locale),
+  makers: (locale: Locale) =>
+    getJson<{ title: string; items: CategoryItem[] }>(`/api/makers?locale=${locale}`, locale),
   category: (slug: string, locale: Locale, page = 1, pageSize = 24, query?: VideoListQuery) =>
     getJson<VideoListResponse>(
       withVideoQuery(`/api/c/${encodeURIComponent(slug)}`, locale, page, pageSize, query),

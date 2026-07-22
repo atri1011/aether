@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { CategoryItem, VideoFilterOptions } from '../types'
 import { useLocale } from '../context'
@@ -9,6 +9,7 @@ import { usePagedList } from '../hooks/usePagedList'
 import { VideoFilterBar } from '../components/VideoFilterBar'
 import { useVideoListQuery } from '../hooks/useVideoListQuery'
 import { VideoSkeletonGrid } from '../components/Skeleton'
+import { CategoryChipGrid } from '../components/CategoryChipGrid'
 
 export function CategoriesPage() {
   const { locale, tr } = useLocale()
@@ -18,7 +19,9 @@ export function CategoriesPage() {
   const [filterOptions, setFilterOptions] = useState<VideoFilterOptions | null>(null)
   const { query, setQuery } = useVideoListQuery({ sort: 'published_at' })
 
+  // Only load the chip index on /categories (no slug)
   useEffect(() => {
+    if (slug) return
     let cancelled = false
     api
       .categories(locale)
@@ -28,6 +31,14 @@ export function CategoriesPage() {
         if (d.filterOptions) setFilterOptions(d.filterOptions)
       })
       .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [locale, slug])
+
+  useEffect(() => {
+    if (!slug) return
+    let cancelled = false
     api
       .videoFilters(locale)
       .then((d) => {
@@ -37,7 +48,7 @@ export function CategoriesPage() {
     return () => {
       cancelled = true
     }
-  }, [locale])
+  }, [locale, slug])
 
   const loader = useCallback(
     async (page: number) => {
@@ -66,54 +77,46 @@ export function CategoriesPage() {
     query.sort,
   ])
 
-  return (
-    <>
+  // Index page: only the category chips
+  if (!slug) {
+    return (
       <section className="section">
         <div className="section-head">
           <h2>{tr('categories')}</h2>
         </div>
-        <div className="chips">
-          {cats.map((c) => (
-            <Link
-              key={c.slug}
-              to={`/c/${c.slug}`}
-              className={`chip${slug === c.slug ? ' active' : ''}`}
-            >
-              {c.title}
-            </Link>
-          ))}
-        </div>
+        <CategoryChipGrid items={cats} />
       </section>
+    )
+  }
 
-      {slug && (
-        <section className="section">
-          <div className="section-head">
-            <h2>{title || slug}</h2>
-            <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
-          </div>
-          <VideoFilterBar options={filterOptions} value={query} onChange={setQuery} />
-          {loading && !items.length && <VideoSkeletonGrid count={12} />}
-          {error && !items.length && <div className="state error">{error}</div>}
-          {!loading && !error && (
-            <>
-              {items.length ? <VideoGrid items={items} /> : <div className="state">{tr('empty')}</div>}
-              <InfiniteSentinel
-                onVisible={loadMore}
-                disabled={!hasMore}
-                loading={loadingMore}
-                label={tr('loadMore')}
-                loadingLabel={tr('loadingMore')}
-              />
-              {!hasMore && items.length > 0 && (
-                <div className="state" style={{ padding: '1.25rem' }}>
-                  {tr('endOfList')}
-                </div>
-              )}
-            </>
+  // Category detail: list only — no top chip strip
+  return (
+    <section className="section">
+      <div className="section-head">
+        <h2>{title || slug}</h2>
+        <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
+      </div>
+      <VideoFilterBar options={filterOptions} value={query} onChange={setQuery} />
+      {loading && !items.length && <VideoSkeletonGrid count={12} />}
+      {error && !items.length && <div className="state error">{error}</div>}
+      {!loading && !error && (
+        <>
+          {items.length ? <VideoGrid items={items} /> : <div className="state">{tr('empty')}</div>}
+          <InfiniteSentinel
+            onVisible={loadMore}
+            disabled={!hasMore}
+            loading={loadingMore}
+            label={tr('loadMore')}
+            loadingLabel={tr('loadingMore')}
+          />
+          {!hasMore && items.length > 0 && (
+            <div className="state" style={{ padding: '1.25rem' }}>
+              {tr('endOfList')}
+            </div>
           )}
-          {loading && items.length > 0 && <div className="state">{tr('loading')}</div>}
-        </section>
+        </>
       )}
-    </>
+      {loading && items.length > 0 && <div className="state">{tr('loading')}</div>}
+    </section>
   )
 }

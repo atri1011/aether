@@ -5,6 +5,7 @@ import { HomePage } from './pages/HomePage'
 import { BrowsePage } from './pages/BrowsePage'
 import { SearchPage } from './pages/SearchPage'
 import { CategoriesPage } from './pages/CategoriesPage'
+import { GenresPage, MakersPage } from './pages/CategoryIndexPage'
 import { WatchPage } from './pages/WatchPage'
 import { ActressesPage } from './pages/ActressesPage'
 import { ActressDetailPage } from './pages/ActressDetailPage'
@@ -21,6 +22,8 @@ export default function App() {
             <Route path="actresses" element={<ActressesPage />} />
             <Route path="actresses/ranking" element={<ActressesPage />} />
             <Route path="actress/:slug" element={<ActressDetailPage />} />
+            <Route path="genres" element={<GenresPage />} />
+            <Route path="makers" element={<MakersPage />} />
             <Route path="categories" element={<CategoriesPage />} />
             <Route path="c/:slug" element={<CategoriesPage />} />
             <Route path="v/:id" element={<WatchPage />} />

@@ -14,7 +14,12 @@ import {
 } from './recombee.js'
 import { mapDetail, mapRecomms, mapSummary } from './map.js'
 import { resolveStream } from './stream.js'
-import { CATEGORIES, findCategory } from './categories.js'
+import {
+  CATEGORIES,
+  CATEGORY_GROUPS,
+  categoriesBySlugs,
+  findCategory,
+} from './categories.js'
 import {
   pyScrapeList,
   pyScrapeActressesList,
@@ -398,6 +403,24 @@ app.get('/api/categories', async (req, res) => {
       kind: c.kind,
     })),
     filterOptions: localizeVideoFilters(locale),
+  })
+})
+
+app.get('/api/genres', (req, res) => {
+  const locale = localeOf(req)
+  const group = CATEGORY_GROUPS.genres
+  res.json({
+    title: locale === 'en' ? group.titleEn : group.titleZh,
+    items: categoriesBySlugs(group.slugs, locale),
+  })
+})
+
+app.get('/api/makers', (req, res) => {
+  const locale = localeOf(req)
+  const group = CATEGORY_GROUPS.makers
+  res.json({
+    title: locale === 'en' ? group.titleEn : group.titleZh,
+    items: categoriesBySlugs(group.slugs, locale),
   })
 })
 
