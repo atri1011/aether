@@ -20,6 +20,7 @@ import {
   pyScrapeActressesList,
   pyScrapeActressesRanking,
   pyScrapeActressDetail,
+  pyScrapeActressesSearch,
 } from './pybridge.js'
 import { handleHlsProxy, toProxiedStream } from './hlsProxy.js'
 import { ensureMediaWorker, stopMediaWorker } from './mediaWorker.js'
@@ -766,6 +767,52 @@ app.get('/api/actresses', async (req, res) => {
     res.json(data)
   } catch (e) {
     sendError(res, 503, 'UPSTREAM', e.message, e.details)
+  }
+})
+
+app.get('/api/actresses/search', async (req, res) => {
+  const locale = localeOf(req)
+  const q = String(req.query.q || '').trim()
+  const limit = Math.min(24, Math.max(1, Number(req.query.limit) || 12))
+  if (!q) return sendError(res, 400, 'CONFIG', 'q is required')
+
+  const key = `actresses:search:v1:${locale}:${q.toLowerCase()}:${limit}`
+  try {
+    const { data, cache } = await withCache(key, config.ttl.browse, async () => {
+      try {
+        const scraped = await pyScrapeActressesSearch({ q, locale, limit })
+        const items = scraped?.ok ? scraped.items || [] : []
+        return {
+          query: q,
+          items,
+          count: items.length,
+          source: scraped?.source || 'scrape',
+          matchedBy: 'fuzzy',
+          url: scraped?.url,
+        }
+      } catch (e) {
+        // Prefer empty rail over 503 so search page still works
+        return {
+          query: q,
+          items: [],
+          count: 0,
+          source: 'error',
+          matchedBy: 'fuzzy',
+          error: e.message,
+        }
+      }
+    })
+    res.setHeader('X-Aether-Cache', cache)
+    res.json(data)
+  } catch (e) {
+    res.json({
+      query: q,
+      items: [],
+      count: 0,
+      source: 'error',
+      matchedBy: 'fuzzy',
+      error: e.message,
+    })
   }
 })
 

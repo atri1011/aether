@@ -108,3 +108,14 @@ export function pyScrapeActressDetail(slug, page = 1, locale = 'zh', opts = {}) 
     { timeoutMs: 50000 },
   )
 }
+
+export function pyScrapeActressesSearch(opts = {}) {
+  const { q = '', locale = 'zh', limit = 12 } = opts
+  const loc = String(locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
+  const lim = Math.max(1, Math.min(Number(limit) || 12, 24))
+  return runPython(
+    'scrape_actresses.py',
+    ['search', String(q || ''), loc, String(lim)],
+    { timeoutMs: 60000 },
+  )
+}
