@@ -10,12 +10,14 @@ import { WatchSkeleton } from '../components/Skeleton'
 function toMasterUrl(input: string) {
   const v = input.trim()
   if (!v) return null
+  // already a (possibly absolute) proxy URL — keep path+query only
+  const proxyIdx = v.indexOf('/api/hls')
+  if (proxyIdx >= 0) return v.slice(proxyIdx)
   let direct: string | null = null
   if (v.includes('playlist.m3u8') || v.endsWith('.m3u8')) direct = v
   else if (/^[0-9a-f-]{36}$/i.test(v)) direct = `https://surrit.com/${v}/playlist.m3u8`
   if (!direct) return null
   // always go through same-origin HLS proxy (surrit needs missav Referer)
-  if (direct.startsWith('/api/hls')) return direct
   return `/api/hls?url=${encodeURIComponent(direct)}`
 }
 

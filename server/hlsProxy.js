@@ -78,10 +78,19 @@ export function isAllowedMediaUrl(raw) {
   }
 }
 
-function proxyUrlFor(absoluteUrl, req) {
-  const host = req.get('host')
-  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http'
-  return `${proto}://${host}/api/hls?url=${encodeURIComponent(absoluteUrl)}`
+/**
+ * Always return a same-origin relative proxy path.
+ *
+ * Absolute URLs (http://127.0.0.1:8787/api/hls?...) break playback in dev:
+ * Vite proxies /api with changeOrigin, so Host becomes the API port. The browser
+ * then loads the rewritten absolute URL off :8787, drops the :5173 session cookie,
+ * and gets AUTH_REQUIRED → hls.js networkError: manifestLoadError.
+ *
+ * Relative paths stay on the page origin (Vite proxy or production static), so
+ * HttpOnly cookies and credentials:include both work.
+ */
+function proxyUrlFor(absoluteUrl, _req) {
+  return `/api/hls?url=${encodeURIComponent(absoluteUrl)}`
 }
 
 function rewriteM3u8(body, playlistUrl, req) {
@@ -169,9 +178,31 @@ export async function handleHlsProxy(req, res) {
   }
 }
 
+/** Collapse absolute same-site proxy URLs to relative so cookies stay on page origin. */
+function toRelativeProxyUrl(url) {
+  const s = String(url || '')
+  if (!s.includes('/api/hls')) return null
+  if (s.startsWith('/api/hls')) return s
+  try {
+    const u = new URL(s)
+    if (u.pathname === '/api/hls' || u.pathname.startsWith('/api/hls')) {
+      return `${u.pathname}${u.search}`
+    }
+  } catch {
+    // ignore
+  }
+  // last resort: strip origin if present
+  const idx = s.indexOf('/api/hls')
+  return idx >= 0 ? s.slice(idx) : null
+}
+
 export function toProxiedStream(stream, req) {
   if (!stream?.masterUrl) return stream
-  if (String(stream.masterUrl).includes('/api/hls?')) return stream
+  const already = toRelativeProxyUrl(stream.masterUrl)
+  if (already) {
+    if (already === stream.masterUrl) return stream
+    return { ...stream, masterUrl: already, proxied: true }
+  }
   return {
     ...stream,
     masterUrlDirect: stream.masterUrl,

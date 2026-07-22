@@ -12,6 +12,16 @@ type Props = {
   }
 }
 
+/**
+ * Keep HLS on the page origin. Absolute http://host:8787/api/hls?... drops the
+ * Vite-dev session cookie and surfaces as networkError: manifestLoadError.
+ */
+function sameOriginHlsUrl(src: string) {
+  const idx = src.indexOf('/api/hls')
+  if (idx > 0) return src.slice(idx)
+  return src
+}
+
 export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
@@ -22,6 +32,7 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
     const video = videoRef.current
     if (!video || !src) return
 
+    const playSrc = sameOriginHlsUrl(src)
     setError(null)
     setLevels([])
 
@@ -40,7 +51,7 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
         },
       })
       hlsRef.current = hls
-      hls.loadSource(src)
+      hls.loadSource(playSrc)
       hls.attachMedia(video)
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setLevels(
@@ -51,12 +62,27 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
         )
       })
       hls.on(Hls.Events.ERROR, (_e, data) => {
-        if (data.fatal) {
-          setError(data.type + (data.details ? `: ${data.details}` : ''))
+        if (!data.fatal) return
+        // one automatic recovery path for transient network blips
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          try {
+            hls.startLoad()
+            return
+          } catch {
+            // fall through to surface error
+          }
+        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          try {
+            hls.recoverMediaError()
+            return
+          } catch {
+            // fall through
+          }
         }
+        setError(data.type + (data.details ? `: ${data.details}` : ''))
       })
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = src
+      video.src = playSrc
     } else {
       setError('HLS not supported in this browser')
     }
