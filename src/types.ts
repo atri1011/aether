@@ -56,6 +56,16 @@ export interface HomePayload {
   segments?: string[]
   recommId?: string
   scenarios?: Record<string, string>
+  /** True when /api/home returned only the first rail; client should fetch /api/home/more */
+  morePending?: boolean
+}
+
+export interface HomeMorePayload {
+  latest: VideoSummary[]
+  chineseSubtitle: VideoSummary[]
+  genreRails?: GenreRail[]
+  segments?: string[]
+  scenarios?: Record<string, string>
 }
 
 export interface CategoryItem {

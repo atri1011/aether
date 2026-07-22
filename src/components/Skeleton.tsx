@@ -12,21 +12,29 @@ export function VideoSkeletonGrid({ count = 12 }: { count?: number }) {
   )
 }
 
+/** Single rail placeholder (used while deferred home rails load). */
+export function RailSkeleton({
+  count = 8,
+  titleWidth = '7rem',
+}: {
+  count?: number
+  titleWidth?: string
+}) {
+  return (
+    <section className="section" aria-busy="true" aria-hidden="true">
+      <div className="section-head">
+        <div className="skeleton skeleton-line" style={{ width: titleWidth, height: '1.2rem' }} />
+      </div>
+      <VideoSkeletonGrid count={count} />
+    </section>
+  )
+}
+
 export function HomeSkeleton() {
   return (
     <div aria-busy="true" aria-live="polite">
-      <section className="section">
-        <div className="section-head">
-          <div className="skeleton skeleton-line" style={{ width: '7rem', height: '1.2rem' }} />
-        </div>
-        <VideoSkeletonGrid count={8} />
-      </section>
-      <section className="section">
-        <div className="section-head">
-          <div className="skeleton skeleton-line" style={{ width: '7rem', height: '1.2rem' }} />
-        </div>
-        <VideoSkeletonGrid count={8} />
-      </section>
+      {/* Only first rail blocks first paint now */}
+      <RailSkeleton titleWidth="7rem" count={8} />
     </div>
   )
 }

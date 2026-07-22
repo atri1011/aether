@@ -149,7 +149,14 @@ function scrapeToSummary(it) {
     id,
     code: base.toUpperCase(),
     title: it.title || base.toUpperCase(),
-    coverUrl: it.coverUrl || `https://fourhoi.com/${base}/cover-t.jpg`,
+    // Prefer scrape-provided URL; force list thumb (cover-t) even if upstream sent cover-n
+    coverUrl: (() => {
+      const raw = String(it.coverUrl || '').trim()
+      if (raw.includes('fourhoi.com') && raw.includes('cover-n.jpg')) {
+        return raw.replace('cover-n.jpg', 'cover-t.jpg')
+      }
+      return raw || `https://fourhoi.com/${base}/cover-t.jpg`
+    })(),
     durationSec: 0,
     releasedAt: null,
     actresses: [],
@@ -200,22 +207,55 @@ async function loadChineseSubtitleRail(locale, count = 12) {
   return []
 }
 
+/**
+ * Fast first paint: only featured rail (+ hero).
+ * Remaining rails load via /api/home/more so the shell isn't blocked by scrape + genre N+1.
+ */
 app.get('/api/home', async (req, res) => {
   const locale = localeOf(req)
-  const key = `home:v6:${locale}`
+  const key = `home:prime:v1:${locale}`
   try {
     const { data, cache } = await withCache(key, config.ttl.home, async () => {
-      const [featuredRaw, segmentsRaw, chineseItems, newScrape] = await Promise.all([
-        recommendHome({ count: 16 }).catch(() => recommendForUser({ count: 16 })),
+      const featuredRaw = await recommendHome({ count: 16 }).catch(() =>
+        recommendForUser({ count: 16 }),
+      )
+      const featured = mapRecomms(featuredRaw, locale)
+      return {
+        hero: featured.items[0] || null,
+        featured: featured.items.slice(0, 10),
+        latest: [],
+        chineseSubtitle: [],
+        genreRails: [],
+        segments: [],
+        recommId: featured.recommId,
+        scenarios: {
+          featured: 'desktop-home-recommended',
+          segments: 'desktop-home-segments',
+        },
+        morePending: true,
+      }
+    })
+    res.setHeader('X-Aether-Cache', cache)
+    res.json(data)
+  } catch (e) {
+    sendError(res, 503, 'UPSTREAM', e.message, e.details)
+  }
+})
+
+/** Deferred home rails: latest + chinese subtitle + genre segments. */
+app.get('/api/home/more', async (req, res) => {
+  const locale = localeOf(req)
+  const key = `home:more:v1:${locale}`
+  try {
+    const { data, cache } = await withCache(key, config.ttl.home, async () => {
+      const [segmentsRaw, chineseItems, newScrape] = await Promise.all([
         recommendSegments({ count: 8 }).catch(() => ({ recomms: [] })),
         loadChineseSubtitleRail(locale, 12),
         pyScrapeList('new', 1, locale).catch(() => null),
       ])
 
-      const featured = mapRecomms(featuredRaw, locale)
       const segmentIds = (segmentsRaw.recomms || []).map((r) => r.id).filter(Boolean)
 
-      // genre rails in parallel (max 3)
       const genreRails = (
         await Promise.all(
           segmentIds.slice(0, 3).map(async (g) => {
@@ -231,24 +271,17 @@ app.get('/api/home', async (req, res) => {
         )
       ).filter(Boolean)
 
-      // latest: use scrape cards directly (no N+1 search)
       let latest = []
       if (newScrape?.ok && newScrape.items?.length) {
         latest = mapScrapeItems(newScrape.items).slice(0, 16)
-      } else {
-        latest = featured.items.slice(8, 20)
       }
 
       return {
-        hero: featured.items[0] || null,
-        featured: featured.items.slice(0, 10),
         latest,
         chineseSubtitle: chineseItems,
         genreRails,
         segments: segmentIds,
-        recommId: featured.recommId,
         scenarios: {
-          featured: 'desktop-home-recommended',
           segments: 'desktop-home-segments',
         },
       }
@@ -279,7 +312,7 @@ app.get('/api/search', async (req, res) => {
   if (!q) return sendError(res, 400, 'CONFIG', 'q is required')
 
   const count = page * pageSize
-  const key = `search:v4:${locale}:${q}:${page}:${pageSize}:${filters}:${sort}`
+  const key = `search:v5:${locale}:${q}:${page}:${pageSize}:${filters}:${sort}`
   try {
     const { data, cache } = await withCache(key, config.ttl.search, async () => {
       // 1) missav HTML search with filters/sort
@@ -337,7 +370,7 @@ app.get('/api/browse', async (req, res) => {
   const pageSize = Math.min(48, Math.max(1, Number(req.query.pageSize) || 24))
   const filters = sanitizeVideoFilter(req.query.filters || req.query.filter)
   const sort = sanitizeVideoSort(req.query.sort, DEFAULT_SORT.browse)
-  const key = `browse:v4:${locale}:${page}:${pageSize}:${filters}:${sort}`
+  const key = `browse:v5:${locale}:${page}:${pageSize}:${filters}:${sort}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       // browse = missav "new" list with optional filters/sort
@@ -439,7 +472,7 @@ app.get('/api/c/:slug', async (req, res) => {
         : DEFAULT_SORT.default
   const sort = sanitizeVideoSort(req.query.sort, defaultSort)
   const count = page * pageSize
-  const key = `cat:v7:${locale}:${cat.slug}:${page}:${pageSize}:${filters}:${sort}`
+  const key = `cat:v8:${locale}:${cat.slug}:${page}:${pageSize}:${filters}:${sort}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       const category = {

@@ -21,19 +21,27 @@ function toIso(releasedAt) {
   return new Date(ms).toISOString()
 }
 
-function coverUrl(id) {
-  const code = String(id || '')
+/**
+ * fourhoi covers:
+ * - cover-t.jpg ~330×222 / ~34KB  — list grids (missav uses this)
+ * - cover-n.jpg ~800×538 / ~168KB — detail / player poster
+ */
+function mediaCode(id) {
+  return String(id || '')
     .toLowerCase()
     .replace(/-uncensored-leak$/i, '')
     .replace(/-chinese-subtitle$/i, '')
-  return `https://fourhoi.com/${code}/cover-n.jpg`
+    .replace(/-english-subtitle$/i, '')
+}
+
+function coverUrl(id, size = 't') {
+  const code = mediaCode(id)
+  const kind = size === 'n' ? 'cover-n' : 'cover-t'
+  return `https://fourhoi.com/${code}/${kind}.jpg`
 }
 
 function displayCode(id) {
-  const base = String(id || '')
-    .replace(/-uncensored-leak$/i, '')
-    .replace(/-chinese-subtitle$/i, '')
-  return base.toUpperCase()
+  return mediaCode(id).toUpperCase()
 }
 
 export function mapSummary(item, locale = 'zh') {
@@ -44,7 +52,8 @@ export function mapSummary(item, locale = 'zh') {
     code: displayCode(id),
     title: pickTitle(v, locale),
     titleJa: v.title || undefined,
-    coverUrl: coverUrl(id),
+    // List/grid: always the small thumb (5× lighter than cover-n)
+    coverUrl: coverUrl(id, 't'),
     durationSec: Number(v.duration) || 0,
     releasedAt: toIso(v.released_at),
     actresses: v.actresses || [],
@@ -60,8 +69,11 @@ export function mapSummary(item, locale = 'zh') {
 
 export function mapDetail(item, locale = 'zh', extras = {}) {
   const v = item.values || {}
+  const summary = mapSummary(item, locale)
   return {
-    ...mapSummary(item, locale),
+    ...summary,
+    // Detail poster can be sharper; related items stay on summary cover-t
+    coverUrl: coverUrl(item.id, 'n'),
     directors: v.directors || [],
     actors: v.actors || [],
     series: v.series || [],

@@ -4,6 +4,7 @@ import type {
   ActressProfile,
   ActressSummary,
   CategoryItem,
+  HomeMorePayload,
   HomePayload,
   Locale,
   PagedResult,
@@ -47,6 +48,9 @@ export type VideoListResponse = PagedResult<VideoSummary> & {
 
 export const api = {
   home: (locale: Locale) => getJson<HomePayload>(`/api/home?locale=${locale}`, locale),
+  /** Deferred rails after first featured paint */
+  homeMore: (locale: Locale) =>
+    getJson<HomeMorePayload>(`/api/home/more?locale=${locale}`, locale),
   videoFilters: (locale: Locale) =>
     getJson<{ filters: FilterOptionLike[]; sorts: FilterOptionLike[]; defaults?: Record<string, string> }>(
       `/api/video-filters?locale=${locale}`,

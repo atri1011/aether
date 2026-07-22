@@ -159,18 +159,26 @@ export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: n
         <img
           src={video.coverUrl}
           alt={title}
-          loading="lazy"
+          // Size win is cover-t (~34KB). Keep lazy; only bump priority for top of each grid.
+          loading={index < 2 ? 'eager' : 'lazy'}
+          decoding="async"
+          fetchPriority={index === 0 ? 'high' : 'auto'}
+          width={330}
+          height={222}
           referrerPolicy="no-referrer"
           onError={(e) => {
             const el = e.currentTarget
             const step = Number(el.dataset.fb || '0')
             const code = mediaCode(video.id)
+            // Prefer thumbs; only escalate to cover-n / DMM if t is missing
             const chain = [
-              video.coverUrl.replace('cover-n.jpg', 'cover-t.jpg'),
-              `https://fourhoi.com/${code}/cover-n.jpg`,
+              video.coverUrl.includes('cover-n.jpg')
+                ? video.coverUrl.replace('cover-n.jpg', 'cover-t.jpg')
+                : null,
               `https://fourhoi.com/${code}/cover-t.jpg`,
+              `https://fourhoi.com/${code}/cover-n.jpg`,
               `https://pics.dmm.co.jp/mono/movie/adult/${code}/${code}ps.jpg`,
-            ]
+            ].filter((u): u is string => Boolean(u) && u !== el.src)
             if (step < chain.length) {
               el.dataset.fb = String(step + 1)
               el.src = chain[step]
