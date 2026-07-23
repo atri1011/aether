@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { config } from './config.js'
+import { scrapeRpc } from './scrapeWorker.js'
+import { metrics } from './services/metrics.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const pyDir = path.join(__dirname, 'py')
@@ -57,17 +60,56 @@ function runPython(script, args = [], { timeoutMs = 45000 } = {}) {
   })
 }
 
+async function withWorker(rpcPath, body, fallback) {
+  if (config.scrapeWorkerEnabled) {
+    try {
+      const data = await scrapeRpc(rpcPath, body)
+      metrics.inc('scrape_ok')
+      return data
+    } catch (e) {
+      // fall through to one-shot spawn
+      metrics.inc('scrape_fail')
+      if (process.env.AETHER_DEBUG) {
+        console.warn(`[pybridge] worker ${rpcPath} failed: ${e.message}`)
+      }
+    }
+  }
+  try {
+    const data = await fallback()
+    metrics.inc('scrape_ok')
+    return data
+  } catch (e) {
+    metrics.inc('scrape_fail')
+    throw e
+  }
+}
+
 export function pyResolveStream(id) {
-  return runPython('resolve_stream.py', [id], { timeoutMs: 60000 })
+  return withWorker(
+    '/resolve',
+    { id },
+    () => runPython('resolve_stream.py', [id], { timeoutMs: 60000 }),
+  )
 }
 
 export function pyScrapeList(listPath, page = 1, locale = 'zh', opts = {}) {
   const loc = String(locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
   const dash = (v) => (v == null || v === '' ? '-' : String(v))
-  return runPython(
-    'scrape_list.py',
-    [listPath, String(page), loc, dash(opts.filters), dash(opts.sort)],
-    { timeoutMs: 50000 },
+  return withWorker(
+    '/scrape/list',
+    {
+      listPath,
+      page,
+      locale: loc,
+      filters: opts.filters || '',
+      sort: opts.sort || '',
+    },
+    () =>
+      runPython(
+        'scrape_list.py',
+        [listPath, String(page), loc, dash(opts.filters), dash(opts.sort)],
+        { timeoutMs: 50000 },
+      ),
   )
 }
 
@@ -84,35 +126,56 @@ export function pyScrapeActressesList(opts = {}) {
   } = opts
   const loc = String(locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
   const dash = (v) => (v == null || v === '' ? '-' : String(v))
-  return runPython(
-    'scrape_actresses.py',
-    [
-      'list',
-      String(page),
-      loc,
-      dash(sort),
-      dash(height),
-      dash(cup),
-      dash(age),
-      dash(debut),
-    ],
-    { timeoutMs: 50000 },
+  return withWorker(
+    '/scrape/actresses',
+    { mode: 'list', page, locale: loc, sort, height, cup, age, debut },
+    () =>
+      runPython(
+        'scrape_actresses.py',
+        [
+          'list',
+          String(page),
+          loc,
+          dash(sort),
+          dash(height),
+          dash(cup),
+          dash(age),
+          dash(debut),
+        ],
+        { timeoutMs: 50000 },
+      ),
   )
 }
 
 export function pyScrapeActressesRanking(locale = 'zh') {
   const loc = String(locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
-  return runPython('scrape_actresses.py', ['ranking', loc], { timeoutMs: 50000 })
+  return withWorker(
+    '/scrape/actresses',
+    { mode: 'ranking', locale: loc },
+    () => runPython('scrape_actresses.py', ['ranking', loc], { timeoutMs: 50000 }),
+  )
 }
 
 export function pyScrapeActressDetail(slug, page = 1, locale = 'zh', opts = {}) {
   const loc = String(locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
   const sort = opts.sort ? String(opts.sort) : '-'
   const filter = opts.filter ? String(opts.filter) : '-'
-  return runPython(
-    'scrape_actresses.py',
-    ['detail', String(slug), String(page), loc, sort, filter],
-    { timeoutMs: 50000 },
+  return withWorker(
+    '/scrape/actresses',
+    {
+      mode: 'detail',
+      slug: String(slug),
+      page,
+      locale: loc,
+      sort: opts.sort || '',
+      filter: opts.filter || '',
+    },
+    () =>
+      runPython(
+        'scrape_actresses.py',
+        ['detail', String(slug), String(page), loc, sort, filter],
+        { timeoutMs: 50000 },
+      ),
   )
 }
 
@@ -120,10 +183,15 @@ export function pyScrapeActressesSearch(opts = {}) {
   const { q = '', locale = 'zh', limit = 12 } = opts
   const loc = String(locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
   const lim = Math.max(1, Math.min(Number(limit) || 12, 24))
-  return runPython(
-    'scrape_actresses.py',
-    ['search', String(q || ''), loc, String(lim)],
-    { timeoutMs: 60000 },
+  return withWorker(
+    '/scrape/actresses',
+    { mode: 'search', q: String(q || ''), locale: loc, limit: lim },
+    () =>
+      runPython(
+        'scrape_actresses.py',
+        ['search', String(q || ''), loc, String(lim)],
+        { timeoutMs: 60000 },
+      ),
   )
 }
 
@@ -131,9 +199,10 @@ export function pyScrapeActressesSearch(opts = {}) {
 export function pyScrapeCatalog(kind = 'genres', page = 1, locale = 'zh') {
   const k = String(kind || 'genres').toLowerCase() === 'makers' ? 'makers' : 'genres'
   const loc = String(locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
-  return runPython(
-    'scrape_catalog.py',
-    [k, String(page || 1), loc],
-    { timeoutMs: 50000 },
+  return withWorker(
+    '/scrape/catalog',
+    { kind: k, page: page || 1, locale: loc },
+    () =>
+      runPython('scrape_catalog.py', [k, String(page || 1), loc], { timeoutMs: 50000 }),
   )
 }
