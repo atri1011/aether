@@ -224,7 +224,8 @@ router.get('/api/actresses/:slug', async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1)
   const filters = sanitizeVideoFilter(req.query.filters || req.query.filter)
   const sort = sanitizeVideoSort(req.query.sort, DEFAULT_SORT.actress)
-  const key = `actresses:detail:v7:${locale}:${slug}:${page}:${filters}:${sort}`
+  // v8: CJK name===slug is valid profile; scrape falls back when ?sort= is CF-blocked
+  const key = `actresses:detail:v8:${locale}:${slug}:${page}:${filters}:${sort}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       let actress = { slug, name: slug }
@@ -305,15 +306,21 @@ router.get('/api/actresses/:slug', async (req, res) => {
         )
       }
 
-      const hasProfile =
+      // CJK MissAV slugs are the display name itself (河北彩花), so name === slug is
+      // normal — require avatar/stats/birthday/videoCount, not a different name.
+      const hasProfile = Boolean(
         actress &&
-        actress.name &&
-        actress.name !== slug &&
-        (actress.avatarUrl || actress.stats || actress.birthday)
+          (actress.avatarUrl ||
+            actress.actressId ||
+            actress.stats ||
+            actress.birthday ||
+            actress.videoCount != null),
+      )
       if (!items.length && !hasProfile && lastErr) {
         const msg = String(lastErr)
         const err = new Error(
-          msg === 'no items parsed' || /status 403|status 404|no candidate/i.test(msg)
+          msg === 'no items parsed' ||
+            /status 403|status 404|no candidate|challenge/i.test(msg)
             ? `actress not found or blocked: ${slug}`
             : msg,
         )

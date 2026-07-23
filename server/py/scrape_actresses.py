@@ -432,6 +432,35 @@ def parse_list_pagination(html: str, page: int = 1) -> dict:
     }
 
 
+def _looks_like_cf_challenge(html: str) -> bool:
+    """True when the body is a CF interstitial / empty shell, not real MissAV HTML.
+
+    Some challenges return HTTP 200 with tens of KB of JS and no catalog chrome.
+    Real actress / list pages always embed fourhoi CDN assets.
+    """
+    if not html:
+        return True
+    if "fourhoi.com" in html or "thumbnail" in html:
+        return False
+    low = html.lower()
+    if any(
+        m in low
+        for m in (
+            "challenge-platform",
+            "cf-browser-verification",
+            "just a moment",
+            "turnstile",
+            "cdn-cgi/challenge",
+            "attention required",
+        )
+    ):
+        return True
+    # Soft-block shell: long enough to pass size checks but no site chrome.
+    if len(html) < 120_000 and "<title" not in low and "missav" not in low:
+        return True
+    return False
+
+
 def _http_get(url: str, *, retries: int = 1):
     """GET with browser impersonation + same-host Referer; short retries on CF 403."""
     import time
@@ -474,6 +503,12 @@ def _http_get(url: str, *, retries: int = 1):
                 continue
             return None, last_err
         if r.status_code == 200 and r.text and len(r.text) > 5000:
+            if _looks_like_cf_challenge(r.text):
+                last_err = "status 403"
+                if i + 1 < attempts:
+                    time.sleep(0.8 + i * 0.7)
+                    continue
+                break
             return r, None
         last_err = f"status {r.status_code}"
         # CF challenge pages are tiny; brief backoff then retry same URL
@@ -663,6 +698,50 @@ def _detail_slug_variants(slug: str) -> list[str]:
     return variants
 
 
+def _detail_path_urls(slug: str, locale: str) -> list[str]:
+    """Stable actress detail path matrix (no query string).
+
+    Prefer localized `/cn|en/…` and percent-encoded names first — raw CJK paths
+    work on some hosts but encoded ones are what the site's own hreflang links use.
+    Ephemeral `dm*` mirrors are last (session-ish 403s).
+    """
+    loc = site_locale(locale)
+    names = _detail_slug_variants(slug)
+    # Encoded first, then raw — missav hreflang uses %E4… form.
+    ordered_names: list[str] = []
+    for name in names:
+        if "%" in name and name not in ordered_names:
+            ordered_names.append(name)
+    for name in names:
+        if name not in ordered_names:
+            ordered_names.append(name)
+
+    urls: list[str] = []
+    seen_u: set[str] = set()
+
+    def push(u: str) -> None:
+        if u and u not in seen_u:
+            seen_u.add(u)
+            urls.append(u)
+
+    for host in bases():
+        for name in ordered_names:
+            if loc == "cn":
+                # /cn first (stable); bare next; /zh and dm* last
+                for pref in ("cn", "", "zh", "dm14/cn", "dm14"):
+                    if pref:
+                        push(f"{host}/{pref}/actresses/{name}")
+                    else:
+                        push(f"{host}/actresses/{name}")
+            else:
+                for pref in (loc, "", f"dm14/{loc}", "dm14"):
+                    if pref:
+                        push(f"{host}/{pref}/actresses/{name}")
+                    else:
+                        push(f"{host}/actresses/{name}")
+    return urls
+
+
 def scrape_detail(
     slug: str,
     page: int = 1,
@@ -675,49 +754,36 @@ def scrape_detail(
     if not slug:
         return {"ok": False, "error": "slug required"}
 
-    query = {}
-    if sort:
-        query["sort"] = sort
-    # MissAV listing query is `filters=` (plural), same as /new /search /genres.
-    # Older code sent `filter=` which silently ignored chips and wasted CF budget.
-    if filt:
-        query["filters"] = filt
-    if page > 1:
-        query["page"] = str(page)
+    sort = (sort or "").strip() or None
+    filt = (filt or "").strip() or None
+    if sort in {"-", ""}:
+        sort = None
+    if filt in {"-", ""}:
+        filt = None
 
-    loc = site_locale(locale)
-    names = _detail_slug_variants(slug)
-    urls: list[str] = []
-    seen_u: set[str] = set()
-
-    def push(u: str) -> None:
-        if u and u not in seen_u:
-            seen_u.add(u)
-            urls.append(u)
-
-    # Prefer bare + localized paths first (dm* mirrors are session-ish and 403 often).
-    for host in bases():
-        for name in names:
-            if loc == "cn":
-                for pref in ("", "cn", "zh", "dm14/cn", "dm14"):
-                    if pref:
-                        push(f"{host}/{pref}/actresses/{name}")
-                    else:
-                        push(f"{host}/actresses/{name}")
-            else:
-                for pref in (loc, "", f"dm14/{loc}", "dm14"):
-                    if pref:
-                        push(f"{host}/{pref}/actresses/{name}")
-                    else:
-                        push(f"{host}/actresses/{name}")
-
-    if query:
+    def with_query(base_urls: list[str], *, include_sort_filt: bool) -> list[str]:
+        query: dict[str, str] = {}
+        if include_sort_filt:
+            if sort:
+                query["sort"] = sort
+            # MissAV listing query is `filters=` (plural), same as /new /search /genres.
+            if filt:
+                query["filters"] = filt
+        if page > 1:
+            query["page"] = str(page)
+        if not query:
+            return list(base_urls)
         qstr = "?" + urlencode(query)
-        urls = [u + qstr for u in urls]
+        return [u + qstr for u in base_urls]
+
+    base_urls = _detail_path_urls(slug, locale)
+    has_extra_query = bool(sort or filt)
 
     def parse(html: str):
         # CF challenge / soft-block pages are short and lack listing chrome.
         if not html or len(html) < 8000:
+            return None
+        if _looks_like_cf_challenge(html):
             return None
         if "fourhoi.com" not in html and "thumbnail" not in html:
             return None
@@ -769,12 +835,52 @@ def scrape_detail(
             "mode": "detail",
         }
 
-    # More retries — actress detail is a single-page UX path; CF blips are common
-    # right after search/list traffic from the same client IP.
-    result = fetch_first_ok(urls, parse, retries=3)
+    # Strategy:
+    # 1) Requested sort/filters (when present) — matches UI chips for most actresses.
+    #    Cap the sorted URL matrix: CF often 403s every `?sort=` candidate for some
+    #    actresses (e.g. 河北彩花); burning the full matrix × retries can exceed the
+    #    Node 50s spawn timeout before we ever try the bare path.
+    # 2) Bare path (+ page only) — prefer content over exact sort rather than
+    #    "actress not found".
+    result: dict
+    sort_fallback = False
+    if has_extra_query:
+        # Prefer localized + encoded first; ~8 is enough to hit a live mirror when
+        # sort is allowed (三上悠亚 etc.) without stalling blocked actresses.
+        sorted_urls = with_query(base_urls[:8], include_sort_filt=True)
+        result = fetch_first_ok(sorted_urls, parse, retries=1)
+        if not result.get("ok"):
+            bare = fetch_first_ok(
+                with_query(base_urls, include_sort_filt=False),
+                parse,
+                retries=2,
+            )
+            if bare.get("ok"):
+                result = bare
+                sort_fallback = True
+    else:
+        result = fetch_first_ok(
+            with_query(base_urls, include_sort_filt=False),
+            parse,
+            retries=2,
+        )
+
+    if result.get("ok"):
+        try:
+            _remember_winner(
+                str(result.get("requestUrl") or result.get("url") or ""),
+                str(result.get("url") or ""),
+            )
+        except Exception:
+            pass
+
     result.setdefault("page", page)
     result.setdefault("locale", normalize_locale(locale))
     result.setdefault("slug", slug)
+    if sort_fallback:
+        result["sortFallback"] = True
+        result["requestedSort"] = sort
+        result["requestedFilter"] = filt
     # Safe defaults if parse never set them (error paths).
     if "hasMore" not in result:
         # Only assume more when we got a full-ish unique page — weak fallback.
