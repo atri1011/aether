@@ -10,6 +10,7 @@
     "build": "tsc -b && vite build",
     "start": "node server/index.js",
     "lint": "oxlint",
+    "test": "node --test server/services/scrapeMap.test.js server/videoFilters.test.js server/auth.test.js server/hlsProxy.test.js server/cache.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
