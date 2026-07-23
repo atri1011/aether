@@ -4,7 +4,8 @@ Long-running media fetch worker.
 Keeps a curl_cffi session warm so HLS segments don't pay process-spawn cost.
 
 GET /health
-GET /fetch?url=<encoded>
+GET /fetch?url=<encoded>          — full buffer (playlist / small)
+GET /fetch_stream?url=<encoded>   — chunked stream (OPT-03 segments)
 """
 from __future__ import annotations
 
@@ -63,19 +64,83 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self):
+    def _parse_url(self):
         parsed = urlparse(self.path)
-        if parsed.path == "/health":
+        qs = parse_qs(parsed.query)
+        url = (qs.get("url") or [""])[0]
+        return parsed.path, url
+
+    def do_GET(self):
+        path, url = self._parse_url()
+
+        if path == "/health":
             body = json.dumps({"ok": True, "service": "aether-media"}).encode()
             self._send(200, body, "application/json")
             return
 
-        if parsed.path != "/fetch":
+        if path == "/fetch_stream":
+            if not url or not allowed(url):
+                self._send(400, b"bad url", "text/plain")
+                return
+            try:
+                r = SESSION.get(
+                    url,
+                    impersonate=IMPERSONATE,
+                    headers=HEADERS,
+                    timeout=40,
+                    allow_redirects=True,
+                    stream=True,
+                )
+                ctype = r.headers.get("content-type") or "application/octet-stream"
+                status = int(r.status_code or 502)
+                if status != 200:
+                    # drain a little for error text
+                    try:
+                        err = r.content[:500] if hasattr(r, "content") else b"error"
+                    except Exception:
+                        err = b"error"
+                    self._send(status, err or b"error", "text/plain")
+                    return
+
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                cl = r.headers.get("content-length")
+                if cl:
+                    self.send_header("Content-Length", cl)
+                ar = r.headers.get("accept-ranges")
+                if ar:
+                    self.send_header("Accept-Ranges", ar)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Cache-Control", "public, max-age=120")
+                # Signal chunked if no length
+                if not cl:
+                    self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+
+                try:
+                    for chunk in r.iter_content(chunk_size=64 * 1024):
+                        if not chunk:
+                            continue
+                        if not cl:
+                            # chunked encoding
+                            self.wfile.write(b"%x\r\n" % len(chunk))
+                            self.wfile.write(chunk)
+                            self.wfile.write(b"\r\n")
+                        else:
+                            self.wfile.write(chunk)
+                    if not cl:
+                        self.wfile.write(b"0\r\n\r\n")
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
+            except Exception as e:
+                self._send(502, str(e).encode("utf-8", "replace"), "text/plain")
+                return
+
+        if path != "/fetch":
             self._send(404, b"not found", "text/plain")
             return
 
-        qs = parse_qs(parsed.query)
-        url = (qs.get("url") or [""])[0]
         if not url or not allowed(url):
             self._send(400, b"bad url", "text/plain")
             return

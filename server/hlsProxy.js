@@ -1,11 +1,15 @@
 /**
  * Proxy surrit HLS so browser can play without missav Referer.
  * Prefers long-running Python media worker; falls back to one-shot fetch_media.py.
+ * OPT-03: stream non-playlist segments via pipeline.
  */
 import { spawn } from 'node:child_process'
 import path from 'node:path'
+import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
-import { mediaFetch } from './mediaWorker.js'
+import { config } from './config.js'
+import { mediaFetch, mediaFetchStream } from './mediaWorker.js'
+import { metrics } from './services/metrics.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const oneShotScript = path.join(__dirname, 'py', 'fetch_media.py')
@@ -93,7 +97,8 @@ function proxyUrlFor(absoluteUrl, _req) {
   return `/api/hls?url=${encodeURIComponent(absoluteUrl)}`
 }
 
-function rewriteM3u8(body, playlistUrl, req) {
+/** Exported for unit tests (OPT-11). */
+export function rewriteM3u8(body, playlistUrl, req) {
   const base = new URL(playlistUrl)
   return body
     .split('\n')
@@ -122,6 +127,14 @@ function rewriteM3u8(body, playlistUrl, req) {
     .join('\n')
 }
 
+function looksLikePlaylist(target, contentType, textHead) {
+  return (
+    /m3u8|mpegurl|application\/vnd\.apple\.mpegurl|text\/plain/i.test(contentType || '') ||
+    target.includes('.m3u8') ||
+    (textHead || '').includes('#EXTM3U')
+  )
+}
+
 export async function handleHlsProxy(req, res) {
   const raw = String(req.query.url || '')
   if (!raw) {
@@ -143,17 +156,46 @@ export async function handleHlsProxy(req, res) {
     return
   }
 
+  const wantStream =
+    config.hlsStreamingEnabled &&
+    !target.includes('.m3u8') &&
+    !/playlist/i.test(target)
+
   try {
+    // Streaming path for .ts / binary segments
+    if (wantStream) {
+      try {
+        const up = await mediaFetchStream(target)
+        if (!looksLikePlaylist(target, up.contentType, '')) {
+          res.status(up.status || 200)
+          res.setHeader('Content-Type', up.contentType || 'application/octet-stream')
+          res.setHeader('Cache-Control', 'public, max-age=120')
+          res.setHeader('Access-Control-Allow-Origin', '*')
+          if (up.contentLength) res.setHeader('Content-Length', up.contentLength)
+          if (up.acceptRanges) res.setHeader('Accept-Ranges', up.acceptRanges)
+          let bytes = 0
+          up.stream.on('data', (c) => {
+            bytes += c.length || 0
+          })
+          up.stream.on('end', () => metrics.add('hls_bytes', bytes))
+          await pipeline(up.stream, res)
+          return
+        }
+        // Rare: stream endpoint returned playlist — fall through to buffer path
+        up.stream.destroy()
+      } catch {
+        // fall back to buffered fetch
+      }
+    }
+
     const { contentType, buffer } = await fetchUpstream(target)
     const textHead = buffer.slice(0, 64).toString('utf8')
-    const isPlaylist =
-      /m3u8|mpegurl|application\/vnd\.apple\.mpegurl|text\/plain/i.test(contentType) ||
-      target.includes('.m3u8') ||
-      textHead.includes('#EXTM3U')
+    const isPlaylist = looksLikePlaylist(target, contentType, textHead)
 
     if (isPlaylist) {
       const text = buffer.toString('utf8')
       if (text.trimStart().startsWith('<!DOCTYPE') || text.trimStart().startsWith('<html')) {
+        metrics.inc('hls_errors')
         res.status(502).json({ error: 'upstream returned html', code: 'UPSTREAM' })
         return
       }
@@ -161,6 +203,7 @@ export async function handleHlsProxy(req, res) {
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl')
       res.setHeader('Cache-Control', 'public, max-age=20')
       res.setHeader('Access-Control-Allow-Origin', '*')
+      metrics.add('hls_bytes', Buffer.byteLength(rewritten))
       res.send(rewritten)
       return
     }
@@ -168,12 +211,14 @@ export async function handleHlsProxy(req, res) {
     res.setHeader('Content-Type', contentType || 'application/octet-stream')
     res.setHeader('Cache-Control', 'public, max-age=120')
     res.setHeader('Access-Control-Allow-Origin', '*')
+    metrics.add('hls_bytes', buffer.length)
     res.send(buffer)
   } catch (e) {
+    metrics.inc('hls_errors')
     res.status(e.status || 502).json({
       error: e.message,
       code: 'UPSTREAM',
-      details: e.body,
+      details: process.env.NODE_ENV === 'production' ? undefined : e.body,
     })
   }
 }
