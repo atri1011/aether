@@ -64,18 +64,25 @@
 }
 
 .player-bar select {
-  background: rgba(255, 255, 255, 0.04);
+  background-color: var(--bg-elev);
   border: 1px solid var(--glass-border);
+  color: var(--ink);
   padding: 0.38rem 0.55rem;
   border-radius: var(--radius-sm);
   outline: none;
   cursor: pointer;
+  color-scheme: dark;
   transition: border-color var(--dur-2) ease, box-shadow var(--dur-2) ease;
 }
 
 .player-bar select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.player-bar select option {
+  background-color: #12151f;
+  color: #eef1f7;
 }
 
 .player-quality {
@@ -284,10 +291,11 @@
 }
 
 .filter-field select {
-  background: rgba(255, 255, 255, 0.04);
+  /* Solid Soft Cinema surface — native menus inherit OS chrome otherwise */
+  background-color: var(--bg-elev);
   border: 1px solid var(--glass-border);
   color: var(--ink);
-  padding: 0.52rem 0.7rem;
+  padding: 0.52rem 2rem 0.52rem 0.7rem;
   min-width: 8.5rem;
   min-height: 40px;
   outline: none;
@@ -295,18 +303,38 @@
   transition:
     border-color var(--dur-2) ease,
     box-shadow var(--dur-2) ease,
-    background var(--dur-2) ease;
+    background-color var(--dur-2) ease;
   cursor: pointer;
+  color-scheme: dark;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23a8b0c0' d='M1.4.6 6 5.2 10.6.6 12 2 6 8 0 2z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 0.65rem auto;
 }
 
 .filter-field select:hover {
   border-color: var(--line-strong);
+  background-color: var(--bg-soft);
 }
 
 .filter-field select:focus {
   border-color: rgba(124, 140, 255, 0.5);
   box-shadow: 0 0 0 3px var(--accent-glow);
-  background: rgba(255, 255, 255, 0.05);
+  background-color: var(--bg-soft);
+}
+
+/* Opened list / options — force Soft Cinema dark (esp. Windows/Chrome) */
+.filter-field select option,
+.filter-field select optgroup {
+  background-color: #12151f;
+  color: #eef1f7;
+}
+
+.filter-field select option:checked {
+  background-color: #1c2234;
+  color: #eef1f7;
 }
 
 .filter-chips {

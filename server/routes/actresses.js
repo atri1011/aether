@@ -113,7 +113,8 @@ router.get('/api/actresses', async (req, res) => {
   const cup = qStr(req.query.cup)
   const age = qStr(req.query.age)
   const debut = qStr(req.query.debut)
-  const key = `actresses:list:v1:${locale}:${page}:${sort}:${height}:${cup}:${age}:${debut}`
+  // v2: more resilient CF/path fallbacks for profile filters (height/cup/age/debut)
+  const key = `actresses:list:v2:${locale}:${page}:${sort}:${height}:${cup}:${age}:${debut}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       const scraped = await pyScrapeActressesList({
@@ -126,7 +127,12 @@ router.get('/api/actresses', async (req, res) => {
         debut,
       })
       if (!scraped?.ok) {
-        const err = new Error(scraped?.error || 'actresses scrape failed')
+        const msg = scraped?.error || 'actresses scrape failed'
+        const err = new Error(
+          /status 403/i.test(String(msg))
+            ? 'actress list blocked by upstream (try again or clear filters)'
+            : msg,
+        )
         err.details = scraped
         throw err
       }

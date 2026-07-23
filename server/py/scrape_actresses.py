@@ -14,7 +14,14 @@ except ImportError:
     sys.exit(2)
 
 # Reuse video-list parser helpers from scrape_list
-from scrape_list import SKIP, base_id, parse_items  # type: ignore
+from scrape_list import (  # type: ignore
+    SKIP,
+    _remember_winner,
+    _winner_hosts,
+    _winner_patterns,
+    base_id,
+    parse_items,
+)
 
 LOCALE_MAP = {
     "zh": "cn",
@@ -38,10 +45,15 @@ def site_locale(locale: str) -> str:
 
 
 def bases() -> list[str]:
-    return [
+    """Host order: last-good winners first, then defaults."""
+    hosts: list[str] = []
+    for h in list(_winner_hosts or []) + [
         "https://missav.ai",
         "https://missav.ws",
-    ]
+    ]:
+        if h and h not in hosts:
+            hosts.append(h)
+    return hosts
 
 
 # Cloudflare often challenges bare GETs; a same-site Referer unlocks /search/*.
@@ -53,28 +65,71 @@ DEFAULT_HEADERS = {
 
 
 def candidate_urls(path: str, page: int, locale: str, query: dict | None = None) -> list[str]:
-    """Build missav actress listing URLs (cn for zh, en for en)."""
+    """Build missav actress listing URLs (cn for zh, en for en).
+
+    Filtered/query URLs are CF-sensitive: prefer stable /cn (or /en) paths and
+    last-good hosts; put /zh and bare dm* mirrors last because they 403 often
+    when height/cup/age/debut query params are present.
+    """
     path = path.strip("/")
     loc = site_locale(locale)
     qs = dict(query or {})
     if page > 1:
         qs["page"] = str(page)
     qstr = ("?" + urlencode(qs)) if qs else ""
-    has_filters = bool(qs)
+    # True profile filters (not mere pagination / default sort)
+    profile_filters = any(k in qs for k in ("height", "cup", "age", "debut"))
 
     urls: list[str] = []
+    seen: set[str] = set()
+
+    def push(url: str) -> None:
+        if url and url not in seen:
+            seen.add(url)
+            urls.append(url)
+
+    # 1) Last-good patterns — but under profile filters, bare host roots and /zh
+    #    often 403. Prefer patterns that already include a stable locale prefix,
+    #    and rewrite bare hosts to /{loc}/… instead of /actresses?height=…
+    for pat in list(_winner_patterns or []):
+        if re.search(r"/dm\d+(/|$)", pat or "", re.I):
+            continue
+        base = (pat or "").rstrip("/")
+        if not base:
+            continue
+        # host-only pattern e.g. https://missav.ai
+        is_host_only = bool(re.fullmatch(r"https?://[^/]+", base, re.I))
+        has_locale = bool(re.search(r"/(cn|en|zh|ja)$", base, re.I))
+        if profile_filters and is_host_only:
+            push(f"{base}/{loc}/{path}{qstr}")
+            continue
+        if profile_filters and re.search(r"/zh$", base, re.I):
+            # demote /zh — still try later via matrix
+            continue
+        if profile_filters and not has_locale and not is_host_only:
+            # unknown prefix under filters: still try, but after locale matrix
+            continue
+        push(f"{base}/{path}{qstr}")
+
+    # 2) Full matrix — winners-first host order; locale path first under filters
     for host in bases():
-        # Prefer localized paths first — bare /actresses?filters often 403s
         if loc == "cn":
-            urls.append(f"{host}/cn/{path}{qstr}")
-            urls.append(f"{host}/dm14/cn/{path}{qstr}")
-            urls.append(f"{host}/zh/{path}{qstr}")
-            if not has_filters:
-                urls.append(f"{host}/{path}{qstr}")
-            urls.append(f"{host}/dm14/{path}{qstr}")
+            # /cn is the reliable path for filtered actress lists
+            push(f"{host}/cn/{path}{qstr}")
+            push(f"{host}/dm14/cn/{path}{qstr}")
+            # bare path sometimes redirects to a live dm* (skip when profile filters —
+            # bare /actresses?height=… is a common CF 403)
+            if not profile_filters:
+                push(f"{host}/{path}{qstr}")
+            # /zh and bare dm* are frequent 403 with query strings — try last
+            push(f"{host}/zh/{path}{qstr}")
+            push(f"{host}/dm14/{path}{qstr}")
         else:
-            urls.append(f"{host}/{loc}/{path}{qstr}")
-            urls.append(f"{host}/dm14/{loc}/{path}{qstr}")
+            push(f"{host}/{loc}/{path}{qstr}")
+            push(f"{host}/dm14/{loc}/{path}{qstr}")
+            if not profile_filters:
+                push(f"{host}/{path}{qstr}")
+            push(f"{host}/dm14/{path}{qstr}")
     return urls
 
 
@@ -378,11 +433,31 @@ def parse_list_pagination(html: str, page: int = 1) -> dict:
 
 
 def _http_get(url: str, *, retries: int = 1):
-    """GET with browser impersonation + site Referer; optional short retries on CF 403."""
+    """GET with browser impersonation + same-host Referer; short retries on CF 403."""
     import time
+    from urllib.parse import urlparse
 
     last_err = "request failed"
     attempts = max(1, int(retries or 1))
+    parsed_u = urlparse(url)
+    host_origin = (
+        f"{parsed_u.scheme}://{parsed_u.netloc}"
+        if parsed_u.scheme and parsed_u.netloc
+        else "https://missav.ai"
+    )
+    path = parsed_u.path or ""
+    # Prefer a localized actress index as referer (helps CF on filtered lists)
+    if "actresses" in path:
+        if "/cn/" in path or path.startswith("/cn"):
+            referer = f"{host_origin}/cn/actresses"
+        elif "/en/" in path or path.startswith("/en"):
+            referer = f"{host_origin}/en/actresses"
+        else:
+            referer = f"{host_origin}/"
+    else:
+        referer = f"{host_origin}/"
+    headers = {**DEFAULT_HEADERS, "Referer": referer}
+
     for i in range(attempts):
         try:
             r = requests.get(
@@ -390,7 +465,7 @@ def _http_get(url: str, *, retries: int = 1):
                 impersonate="chrome131",
                 timeout=30,
                 allow_redirects=True,
-                headers=DEFAULT_HEADERS,
+                headers=headers,
             )
         except Exception as e:
             last_err = str(e)
@@ -414,17 +489,33 @@ def fetch_first_ok(urls: list[str], parse_fn, *, retries: int = 1):
     for url in urls:
         r, err = _http_get(url, retries=retries)
         if r is None:
-            last = {"ok": False, "error": err or "request failed", "url": url}
+            last = {"ok": False, "error": err or "request failed", "url": url, "requestUrl": url}
             continue
         try:
             parsed = parse_fn(r.text)
         except Exception as e:
-            last = {"ok": False, "error": f"parse: {e}", "url": str(r.url)}
+            last = {
+                "ok": False,
+                "error": f"parse: {e}",
+                "url": str(r.url),
+                "requestUrl": url,
+            }
             continue
         if not parsed:
-            last = {"ok": False, "error": "no items parsed", "url": str(r.url)}
+            last = {
+                "ok": False,
+                "error": "no items parsed",
+                "url": str(r.url),
+                "requestUrl": url,
+            }
             continue
-        return {"ok": True, "url": str(r.url), "raw_html_len": len(r.text), **parsed}
+        return {
+            "ok": True,
+            "url": str(r.url),
+            "requestUrl": url,
+            "raw_html_len": len(r.text),
+            **parsed,
+        }
     return last
 
 
@@ -438,8 +529,13 @@ def scrape_list(
     age: str | None = None,
     debut: str | None = None,
 ) -> dict:
+    import time
+
     query = {}
-    if sort:
+    # MissAV default sort is videos — only send non-default / explicit sorts,
+    # and always send profile filters. Sending bare sort=videos is fine too,
+    # but extra query heat is avoided when only paging the default list.
+    if sort and sort not in {"", "-"}:
         query["sort"] = sort
     if height:
         query["height"] = height
@@ -450,6 +546,7 @@ def scrape_list(
     if debut:
         query["debut"] = debut
 
+    has_profile = bool(height or cup or age or debut)
     urls = candidate_urls("actresses", page, locale, query)
 
     def parse(html: str):
@@ -470,7 +567,29 @@ def scrape_list(
             },
         }
 
-    result = fetch_first_ok(urls, parse)
+    # Profile filters attract more CF challenges — retry per URL and one full pass.
+    retries = 3 if has_profile else 2
+    result = fetch_first_ok(urls, parse, retries=retries)
+    err_msg = str(result.get("error") or "")
+    if (
+        not result.get("ok")
+        and has_profile
+        and re.search(r"status (403|503|429)", err_msg, re.I)
+    ):
+        # Second pass after short cool-down (often enough for CF IP soft-blocks).
+        time.sleep(1.1)
+        alt = list(reversed(urls[:6])) + urls[6:]
+        result = fetch_first_ok(alt, parse, retries=2)
+
+    if result.get("ok"):
+        try:
+            _remember_winner(
+                str(result.get("requestUrl") or result.get("url") or ""),
+                str(result.get("url") or ""),
+            )
+        except Exception:
+            pass
+
     result.setdefault("page", page)
     result.setdefault("locale", normalize_locale(locale))
     return result
@@ -510,7 +629,15 @@ def scrape_ranking(locale: str = "zh") -> dict:
             "filters": {},
         }
 
-    result = fetch_first_ok(urls, parse)
+    result = fetch_first_ok(urls, parse, retries=2)
+    if result.get("ok"):
+        try:
+            _remember_winner(
+                str(result.get("requestUrl") or result.get("url") or ""),
+                str(result.get("url") or ""),
+            )
+        except Exception:
+            pass
     result.setdefault("locale", normalize_locale(locale))
     return result
 

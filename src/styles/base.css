@@ -48,6 +48,12 @@ select {
   color: inherit;
 }
 
+/* Native <select> menus often ignore page colors on Windows unless forced */
+select,
+select option {
+  color-scheme: dark;
+}
+
 button {
   cursor: pointer;
 }
