@@ -11,8 +11,29 @@ type Props = {
     exitTheatre: string
     quality: string
     qualityAuto: string
+    seekBack10s: string
+    seekBack1m: string
+    seekBack10m: string
+    seekFwd10s: string
+    seekFwd1m: string
+    seekFwd10m: string
+    speedBoost: string
   }
 }
+
+/** MissAV-style jump offsets (seconds). Order: back 10m/1m/10s, then fwd 10s/1m/10m. */
+const SEEK_STEPS = [
+  { delta: -600, key: 'seekBack10m' as const, short: '-10m' },
+  { delta: -60, key: 'seekBack1m' as const, short: '-1m' },
+  { delta: -10, key: 'seekBack10s' as const, short: '-10s' },
+  { delta: 10, key: 'seekFwd10s' as const, short: '+10s' },
+  { delta: 60, key: 'seekFwd1m' as const, short: '+1m' },
+  { delta: 600, key: 'seekFwd10m' as const, short: '+10m' },
+]
+
+/** Hold video surface this long before 2× (avoids fighting tap / native controls). */
+const SPEED_BOOST_HOLD_MS = 320
+const SPEED_BOOST_RATE = 2
 
 type LevelOption = {
   index: number
@@ -112,6 +133,12 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
   const [activeHeight, setActiveHeight] = useState<number>(0)
   // height preference persisted across videos (or -1 auto)
   const prefRef = useRef<number>(readQualityPref())
+  // Long-press 2×: timer + rate restore (refs avoid stale listeners)
+  const holdTimerRef = useRef<number | null>(null)
+  const boostPointerIdRef = useRef<number | null>(null)
+  const boostingRef = useRef(false)
+  const baseRateRef = useRef(1)
+  const [boosting, setBoosting] = useState(false)
 
   const applyLevel = useCallback((hls: Hls, levelIndex: number) => {
     // currentLevel forces immediate switch; -1 re-enables ABR
@@ -121,6 +148,109 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
       hls.nextLevel = -1
     }
   }, [])
+
+  /** Clamp seek into [0, duration]; no-op when media not ready. */
+  const seekBy = useCallback((deltaSec: number) => {
+    const video = videoRef.current
+    if (!video || !src) return
+    const now = video.currentTime
+    if (!Number.isFinite(now)) return
+    const duration = Number.isFinite(video.duration) ? video.duration : Number.POSITIVE_INFINITY
+    const next = Math.min(Math.max(0, now + deltaSec), duration)
+    try {
+      video.currentTime = next
+    } catch {
+      // ignore NotSupportedError while media is still opening
+    }
+  }, [src])
+
+  const clearHoldTimer = useCallback(() => {
+    if (holdTimerRef.current != null) {
+      window.clearTimeout(holdTimerRef.current)
+      holdTimerRef.current = null
+    }
+  }, [])
+
+  const endSpeedBoost = useCallback(() => {
+    clearHoldTimer()
+    const video = videoRef.current
+    const pointerId = boostPointerIdRef.current
+    if (video && pointerId != null) {
+      try {
+        if (video.hasPointerCapture?.(pointerId)) video.releasePointerCapture(pointerId)
+      } catch {
+        // ignore — capture may already be gone
+      }
+    }
+    boostPointerIdRef.current = null
+    if (boostingRef.current && video) {
+      try {
+        video.playbackRate = baseRateRef.current > 0 ? baseRateRef.current : 1
+      } catch {
+        // ignore
+      }
+    }
+    boostingRef.current = false
+    setBoosting(false)
+  }, [clearHoldTimer])
+
+  const beginSpeedBoost = useCallback(
+    (pointerId: number) => {
+      const video = videoRef.current
+      if (!video || !src || video.paused || boostingRef.current) return
+      const prev = video.playbackRate
+      baseRateRef.current = Number.isFinite(prev) && prev > 0 ? prev : 1
+      try {
+        video.playbackRate = SPEED_BOOST_RATE
+      } catch {
+        return
+      }
+      boostingRef.current = true
+      boostPointerIdRef.current = pointerId
+      try {
+        video.setPointerCapture(pointerId)
+      } catch {
+        // Safari / edge cases — still restore on pointerup bubble
+      }
+      setBoosting(true)
+    },
+    [src],
+  )
+
+  const onVideoPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLVideoElement>) => {
+      if (!src) return
+      // primary contact only (left mouse / touch / pen)
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      clearHoldTimer()
+      const pointerId = e.pointerId
+      holdTimerRef.current = window.setTimeout(() => {
+        holdTimerRef.current = null
+        beginSpeedBoost(pointerId)
+      }, SPEED_BOOST_HOLD_MS)
+    },
+    [src, clearHoldTimer, beginSpeedBoost],
+  )
+
+  const onVideoPointerEnd = useCallback(() => {
+    endSpeedBoost()
+  }, [endSpeedBoost])
+
+  const onVideoContextMenu = useCallback(
+    (e: React.MouseEvent<HTMLVideoElement>) => {
+      // suppress long-press context menu while boosting / holding
+      if (boostingRef.current || holdTimerRef.current != null) {
+        e.preventDefault()
+      }
+    },
+    [],
+  )
+
+  // Always restore rate if stream unmounts mid-boost
+  useEffect(() => () => endSpeedBoost(), [endSpeedBoost])
+  useEffect(() => {
+    endSpeedBoost()
+  }, [src, endSpeedBoost])
 
   const onQualityChange = useCallback(
     (value: number) => {
@@ -260,19 +390,46 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
   }, [theatre, onToggleTheatre])
 
   return (
-    <div className={`player-shell${theatre ? ' theatre' : ''}`}>
-      <video
-        ref={videoRef}
-        poster={poster}
-        controls
-        playsInline
-        // @ts-expect-error referrerPolicy is valid on HTMLVideoElement in browsers
-        referrerPolicy="no-referrer"
-      />
+    <div className={`player-shell${theatre ? ' theatre' : ''}${boosting ? ' is-boosting' : ''}`}>
+      <div className="player-video-wrap">
+        <video
+          ref={videoRef}
+          poster={poster}
+          controls
+          playsInline
+          // @ts-expect-error referrerPolicy is valid on HTMLVideoElement in browsers
+          referrerPolicy="no-referrer"
+          onPointerDown={onVideoPointerDown}
+          onPointerUp={onVideoPointerEnd}
+          onPointerCancel={onVideoPointerEnd}
+          onLostPointerCapture={onVideoPointerEnd}
+          onContextMenu={onVideoContextMenu}
+        />
+        {boosting && (
+          <div className="player-speed-badge" aria-live="polite">
+            {labels.speedBoost}
+          </div>
+        )}
+      </div>
       <div className="player-bar">
         <button type="button" className="btn" onClick={onToggleTheatre}>
           {theatre ? labels.exitTheatre : labels.theatre}
         </button>
+        <div className="player-seek" role="group" aria-label="Seek">
+          {SEEK_STEPS.map((step) => (
+            <button
+              key={step.key}
+              type="button"
+              className="btn player-seek-btn"
+              disabled={!src}
+              title={labels[step.key]}
+              aria-label={labels[step.key]}
+              onClick={() => seekBy(step.delta)}
+            >
+              {step.short}
+            </button>
+          ))}
+        </div>
         {showQuality && (
           <label className="player-quality">
             <span className="player-quality-label">{labels.quality}</span>

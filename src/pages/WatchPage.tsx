@@ -115,6 +115,13 @@ export function WatchPage() {
               exitTheatre: tr('exitTheatre'),
               quality: tr('quality'),
               qualityAuto: tr('qualityAuto'),
+              seekBack10s: tr('seekBack10s'),
+              seekBack1m: tr('seekBack1m'),
+              seekBack10m: tr('seekBack10m'),
+              seekFwd10s: tr('seekFwd10s'),
+              seekFwd1m: tr('seekFwd1m'),
+              seekFwd10m: tr('seekFwd10m'),
+              speedBoost: tr('speedBoost'),
             }}
           />
           {!src && (
