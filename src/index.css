@@ -1810,6 +1810,8 @@ img {
     bottom: 0;
     width: min(84vw, 300px);
     height: 100vh;
+    /* Above .drawer-backdrop (z-index: 60) so nav clicks aren't swallowed */
+    z-index: 70;
     transform: translateX(-105%);
     transition: transform var(--dur-3) var(--ease-out-expo);
     box-shadow: none;
