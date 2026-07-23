@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { api, formatDate, formatDuration } from '../lib/api'
+import { api, formatDate, formatDuration, isAbortError } from '../lib/api'
 import type { VideoDetail } from '../types'
 import { useLocale } from '../context'
 import { Player } from '../components/Player'
@@ -27,30 +27,70 @@ export function WatchPage() {
   const [video, setVideo] = useState<VideoDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [streamResolving, setStreamResolving] = useState(false)
   const [theatre, setTheatre] = useState(false)
   const [manual, setManual] = useState('')
   const [overrideSrc, setOverrideSrc] = useState<string | null>(null)
 
+  // Meta first (OPT-07); abort on id/locale change (OPT-08)
   useEffect(() => {
-    let cancelled = false
+    const ac = new AbortController()
     setLoading(true)
     setError(null)
     setOverrideSrc(null)
+    setStreamResolving(false)
     api
-      .video(id, locale)
+      .video(id, locale, { signal: ac.signal })
       .then((d) => {
-        if (!cancelled) setVideo(d)
+        if (ac.signal.aborted) return
+        setVideo(d)
+        setLoading(false)
       })
       .catch((e: Error) => {
-        if (!cancelled) setError(e.message)
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (isAbortError(e) || ac.signal.aborted) return
+        setError(e.message)
+        setLoading(false)
       })
     return () => {
-      cancelled = true
+      ac.abort()
     }
   }, [id, locale])
+
+  // Auto resolve stream when meta arrived without masterUrl
+  useEffect(() => {
+    if (!video || loading) return
+    if (video.stream?.masterUrl) return
+    if (video.streamStatus === 'error' && video.streamError) return
+    // pending / miss → resolve
+    if (video.streamStatus && video.streamStatus !== 'pending' && video.streamStatus !== 'miss') {
+      return
+    }
+    const ac = new AbortController()
+    setStreamResolving(true)
+    api
+      .resolveStream(id, locale, { signal: ac.signal })
+      .then((d) => {
+        if (!ac.signal.aborted) setVideo(d)
+      })
+      .catch((e: Error) => {
+        if (isAbortError(e) || ac.signal.aborted) return
+        setVideo((prev) =>
+          prev
+            ? {
+                ...prev,
+                streamStatus: 'error',
+                streamError: { message: e.message },
+              }
+            : prev,
+        )
+      })
+      .finally(() => {
+        if (!ac.signal.aborted) setStreamResolving(false)
+      })
+    return () => {
+      ac.abort()
+    }
+  }, [video, loading, id, locale])
 
   const src = useMemo(() => {
     if (overrideSrc) return overrideSrc
@@ -79,8 +119,10 @@ export function WatchPage() {
           />
           {!src && (
             <p className="card-sub" style={{ marginTop: '0.75rem' }}>
-              {tr('streamMissing')}
-              {video.streamError?.message ? ` — ${video.streamError.message}` : ''}
+              {streamResolving ? tr('loading') : tr('streamMissing')}
+              {!streamResolving && video.streamError?.message
+                ? ` — ${video.streamError.message}`
+                : ''}
               <br />
               {tr('streamHint')}
             </p>
@@ -104,8 +146,14 @@ export function WatchPage() {
             <button
               type="button"
               className="btn"
+              disabled={streamResolving}
               onClick={() => {
-                api.resolveStream(id, locale).then(setVideo).catch((e: Error) => setError(e.message))
+                setStreamResolving(true)
+                api
+                  .resolveStream(id, locale)
+                  .then(setVideo)
+                  .catch((e: Error) => setError(e.message))
+                  .finally(() => setStreamResolving(false))
               }}
             >
               {tr('resolveAgain')}

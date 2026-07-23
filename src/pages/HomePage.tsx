@@ -15,37 +15,38 @@ export function HomePage() {
 
   // Phase 1: featured only — unblock first paint
   useEffect(() => {
-    let cancelled = false
+    const ac = new AbortController()
     setLoading(true)
     setError(null)
     setMoreError(null)
     setData(null)
     api
-      .home(locale)
+      .home(locale, { signal: ac.signal })
       .then((d) => {
-        if (!cancelled) setData(d)
+        if (!ac.signal.aborted) setData(d)
       })
       .catch((e: Error) => {
-        if (!cancelled) setError(e.message || tr('noCache'))
+        if (e?.name === 'AbortError' || ac.signal.aborted) return
+        setError(e.message || tr('noCache'))
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!ac.signal.aborted) setLoading(false)
       })
     return () => {
-      cancelled = true
+      ac.abort()
     }
   }, [locale, tr])
 
   // Phase 2: remaining rails after featured is on screen
   useEffect(() => {
     if (!data?.morePending) return
-    let cancelled = false
+    const ac = new AbortController()
     setMoreLoading(true)
     setMoreError(null)
     api
-      .homeMore(locale)
+      .homeMore(locale, { signal: ac.signal })
       .then((more) => {
-        if (cancelled) return
+        if (ac.signal.aborted) return
         setData((prev) => {
           if (!prev) return prev
           return {
@@ -60,17 +61,16 @@ export function HomePage() {
         })
       })
       .catch((e: Error) => {
-        if (!cancelled) {
-          setMoreError(e.message || tr('error'))
-          // Stop retry loop on this payload; user can reload page
-          setData((prev) => (prev ? { ...prev, morePending: false } : prev))
-        }
+        if (e?.name === 'AbortError' || ac.signal.aborted) return
+        setMoreError(e.message || tr('error'))
+        // Stop retry loop on this payload; user can reload page
+        setData((prev) => (prev ? { ...prev, morePending: false } : prev))
       })
       .finally(() => {
-        if (!cancelled) setMoreLoading(false)
+        if (!ac.signal.aborted) setMoreLoading(false)
       })
     return () => {
-      cancelled = true
+      ac.abort()
     }
   }, [data?.morePending, locale, tr])
 

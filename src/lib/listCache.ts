@@ -44,6 +44,10 @@ export function listCacheLoad<T>(
       listCacheSet(key, v, ttlMs)
       return v
     })
+    .catch((e) => {
+      // Don't cache abort / transient failures for in-flight peers
+      throw e
+    })
     .finally(() => pending.delete(key))
   pending.set(key, p)
   return p

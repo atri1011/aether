@@ -30,6 +30,8 @@ export interface VideoDetail extends VideoSummary {
   stream: StreamInfo | null
   related?: VideoSummary[]
   streamError?: { message: string; details?: string }
+  /** OPT-07: pending|miss|cached|resolved|error */
+  streamStatus?: 'pending' | 'miss' | 'cached' | 'resolved' | 'error'
 }
 
 export interface PagedResult<T> {

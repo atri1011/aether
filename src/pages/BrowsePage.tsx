@@ -28,8 +28,8 @@ export function BrowsePage() {
   }, [locale])
 
   const loader = useCallback(
-    async (page: number) => {
-      const d = await api.browsePage(locale, page, 24, query)
+    async (page: number, signal: AbortSignal) => {
+      const d = await api.browsePage(locale, page, 24, query, { signal })
       if (d.filterOptions) setFilterOptions(d.filterOptions)
       const hasMore =
         typeof d.hasMore === 'boolean'

@@ -88,9 +88,9 @@ export function CategoriesPage() {
   }, [locale, slug])
 
   const loader = useCallback(
-    async (page: number) => {
+    async (page: number, signal: AbortSignal) => {
       if (!slug) return { items: [], page, pageSize: 24, hasMore: false }
-      const d = await api.category(slug, locale, page, 24, query)
+      const d = await api.category(slug, locale, page, 24, query, { signal })
       if (d.category?.title) setTitle(d.category.title)
       if (d.filterOptions) setFilterOptions(d.filterOptions)
       const hasMore =

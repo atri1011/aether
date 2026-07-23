@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { VideoSummary } from '../types'
+import { isAbortError } from '../lib/api'
 
 type PageResult = {
   items: VideoSummary[]
@@ -8,7 +9,7 @@ type PageResult = {
   hasMore?: boolean
 }
 
-type Loader = (page: number) => Promise<PageResult>
+type Loader = (page: number, signal: AbortSignal) => Promise<PageResult>
 
 export function usePagedList(loader: Loader, deps: unknown[]) {
   const [items, setItems] = useState<VideoSummary[]>([])
@@ -21,21 +22,25 @@ export function usePagedList(loader: Loader, deps: unknown[]) {
   const busy = useRef(false)
   const loaderRef = useRef(loader)
   loaderRef.current = loader
+  const abortRef = useRef<AbortController | null>(null)
 
   const resetAndLoad = useCallback(async () => {
+    abortRef.current?.abort()
+    const ac = new AbortController()
+    abortRef.current = ac
+
     busy.current = true
     setLoading(true)
     setError(null)
     // Clear list so switching categories never shows the previous slug's cards.
-    // Prefetch + listCache still make the next paint near-instant when warm.
     setItems([])
     setPage(0)
     setHasMore(true)
     try {
-      const d = await loaderRef.current(1)
+      const d = await loaderRef.current(1, ac.signal)
+      if (ac.signal.aborted) return
       setItems(d.items || [])
       setPage(1)
-      // Prefer server hasMore. Fallback: missav scrape pages are ~12, not 24.
       const more =
         typeof d.hasMore === 'boolean'
           ? d.hasMore
@@ -43,26 +48,35 @@ export function usePagedList(loader: Loader, deps: unknown[]) {
       setHasMore(more)
       setMeta(d as unknown as Record<string, unknown>)
     } catch (e) {
+      if (isAbortError(e) || ac.signal.aborted) return
       setError(e instanceof Error ? e.message : String(e))
       setHasMore(false)
     } finally {
-      setLoading(false)
-      busy.current = false
+      if (!ac.signal.aborted) {
+        setLoading(false)
+        busy.current = false
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
 
   useEffect(() => {
     resetAndLoad()
+    return () => {
+      abortRef.current?.abort()
+    }
   }, [resetAndLoad])
 
   const loadMore = useCallback(async () => {
     if (busy.current || !hasMore || loading || loadingMore) return
+    const ac = abortRef.current
+    if (!ac || ac.signal.aborted) return
     busy.current = true
     setLoadingMore(true)
     try {
       const next = page + 1
-      const d = await loaderRef.current(next)
+      const d = await loaderRef.current(next, ac.signal)
+      if (ac.signal.aborted) return
       const batch = d.items || []
       setItems((prev) => {
         const seen = new Set(prev.map((x) => x.id))
@@ -82,6 +96,7 @@ export function usePagedList(loader: Loader, deps: unknown[]) {
           : batch.length >= Math.min(d.pageSize || 24, 12)
       setHasMore(more && batch.length > 0)
     } catch (e) {
+      if (isAbortError(e)) return
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoadingMore(false)

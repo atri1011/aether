@@ -59,9 +59,9 @@ export function SearchPage() {
   }, [q, locale])
 
   const loader = useCallback(
-    async (page: number) => {
+    async (page: number, signal: AbortSignal) => {
       if (!q) return { items: [], page, pageSize: 24, hasMore: false }
-      const d = await api.searchPage(q, locale, page, 24, query)
+      const d = await api.searchPage(q, locale, page, 24, query, { signal })
       if (d.filterOptions) setFilterOptions(d.filterOptions)
       const hasMore =
         typeof d.hasMore === 'boolean'

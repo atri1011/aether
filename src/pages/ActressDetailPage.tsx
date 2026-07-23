@@ -87,8 +87,8 @@ export function ActressDetailPage() {
   }, [locale])
 
   const loader = useCallback(
-    async (page: number) => {
-      const d = await api.actressDetail(slug, locale, page, query)
+    async (page: number, signal: AbortSignal) => {
+      const d = await api.actressDetail(slug, locale, page, query, { signal })
       if (d.actress) {
         // Never replace a rich page-1 profile with a bare page-N shell.
         setProfile((prev) => mergeActressProfile(prev, d.actress))
