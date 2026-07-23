@@ -196,13 +196,19 @@ SKIP = {
     "instagram",
 }
 
-# Real DVD / product ids look like: ssis-698, faxx-9002b, fc2-ppv-1234567, 1pondo-010121_001
+# Real DVD / product ids look like:
+#   ssis-698, faxx-9002b, fc2-ppv-1234567, 1pondo-010121_001,
+#   071126_001 (1pondo bare), 062226-001 (caribbean), twav-d001
 _VIDEO_ID_RE = re.compile(
     r"""^(?:
-        [a-z]{1,15}-\d{2,7}[a-z0-9\-]*          # SSIS-698 / FAXX-9002B / XXX-123-chinese-subtitle
+        [a-z]{1,15}-\d{2,7}[a-z0-9\-_]*         # SSIS-698 / FAXX-9002B / XXX-123-chinese-subtitle
+      | [a-z]{2,15}-[a-z]\d{1,7}[a-z0-9\-_]*    # twav-d001 / twav-s02
       | fc2-ppv-\d{4,10}                          # FC2-PPV-1234567
       | \d+pondo-[a-z0-9_\-]+                     # 1pondo-...
-      | (?:heyzo|caribbeancom|10musume|pacopacomama|gachinco|tokyo-hot|tokyohot)-[a-z0-9_\-]+
+      | pondo-[a-z0-9_\-]+                        # pondo-061426_001
+      | \d{6,8}_\d{2,4}(?:[a-z0-9_\-]*)?          # 071126_001 (1pondo bare date codes)
+      | \d{6,8}-\d{2,4}(?:[a-z0-9_\-]*)?          # 062226-001 (caribbean bare)
+      | (?:heyzo|caribbeancom|10musume|pacopacomama|gachinco|tokyo-hot|tokyohot|xxx-av|twav|siro|luxu|gana|ara|scute|mium|maan|h4610|h0930|c0930)-[a-z0-9_\-]+
     )$""",
     re.I | re.X,
 )
@@ -218,7 +224,7 @@ def is_video_id(raw: str) -> bool:
     if not re.search(r"\d", s):
         return False
     # pure digits or pure letters+digits without hyphen (naughty4610, etc.)
-    if re.fullmatch(r"[a-z]+\d+", s) and "-" not in s:
+    if re.fullmatch(r"[a-z]+\d+", s) and "-" not in s and "_" not in s:
         return False
     if re.fullmatch(r"\d+", s):
         return False
@@ -226,13 +232,14 @@ def is_video_id(raw: str) -> bool:
         return False
     if _VIDEO_ID_RE.match(s):
         return True
-    # looser fallback: must have hyphen AND digits on the right side
-    if "-" in s:
-        left, _, right = s.partition("-")
-        if left and re.search(r"\d", right) and re.fullmatch(r"[a-z0-9]+", left):
-            # still reject known junk prefixes
-            if left in SKIP:
-                return False
+    # looser fallback: hyphen/underscore product codes with digits on the right
+    # Do NOT reject when the left token is a studio nav slug (fc2, siro, …) —
+    # those are SKIP only as bare paths, not as product prefixes (fc2-ppv-…).
+    for sep in ("-", "_"):
+        if sep not in s:
+            continue
+        left, _, right = s.partition(sep)
+        if left and right and re.search(r"\d", right) and re.fullmatch(r"[a-z0-9]+", left):
             return True
     return False
 
@@ -402,15 +409,18 @@ def parse_items(html: str, filters: str | None = None) -> list[dict]:
     Also pulls duration from each thumbnail card badge (H:MM:SS). Actress
     names are not on list HTML — the Node layer enriches those via Recombee.
     """
-    # Cover order ≈ listing order on missav pages
-    covers = re.findall(r"https://fourhoi\.com/([a-z0-9\-]+)/cover-[nt]\.jpg", html, re.I)
+    # Cover order ≈ listing order on missav pages.
+    # Underscore is required for 1pondo bare codes (071126_001).
+    covers = re.findall(
+        r"https://fourhoi\.com/([a-z0-9\-_]+)/cover-[nt]\.jpg", html, re.I
+    )
 
     # Duration lives inside each `thumbnail group` card, near the cover.
     # Split by card root so we don't attach the next tile's badge to this id.
     duration_map: dict[str, int] = {}
     for block in re.split(r'class="thumbnail\s+group"', html)[1:]:
         cover_m = re.search(
-            r"fourhoi\.com/([a-z0-9\-]+)/cover-[nt]\.jpg", block, re.I
+            r"fourhoi\.com/([a-z0-9\-_]+)/cover-[nt]\.jpg", block, re.I
         )
         if not cover_m:
             continue
@@ -429,7 +439,7 @@ def parse_items(html: str, filters: str | None = None) -> list[dict]:
         duration_map.setdefault(base_id(cid), sec)
 
     titles = re.findall(
-        r"text-secondary[^>]*>\s*([A-Z0-9][A-Z0-9\-]+)\s+([^<\n]{3,160})",
+        r"text-secondary[^>]*>\s*([A-Z0-9][A-Z0-9\-_]+)\s+([^<\n]{3,160})",
         html,
     )
     title_map = {}

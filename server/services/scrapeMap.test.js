@@ -15,6 +15,16 @@ describe('isLikelyVideoId', () => {
     assert.equal(isLikelyVideoId('abc-123-chinese-subtitle'), true)
   })
 
+  it('accepts uncensored / asia studio codes', () => {
+    assert.equal(isLikelyVideoId('071126_001'), true) // 1pondo bare
+    assert.equal(isLikelyVideoId('pondo-061426_001'), true)
+    assert.equal(isLikelyVideoId('062226-001'), true) // caribbean bare
+    assert.equal(isLikelyVideoId('twav-d001'), true)
+    assert.equal(isLikelyVideoId('twav-s02'), true)
+    assert.equal(isLikelyVideoId('heyzo-3893'), true)
+    assert.equal(isLikelyVideoId('h4610-ki250316'), true)
+  })
+
   it('rejects junk / nav slugs', () => {
     assert.equal(isLikelyVideoId('login'), false)
     assert.equal(isLikelyVideoId('actresses'), false)

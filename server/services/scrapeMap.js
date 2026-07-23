@@ -50,12 +50,18 @@ export function isLikelyVideoId(raw) {
   if (!s || JUNK_VIDEO_SLUGS.has(s)) return false
   if (s.length < 5 || s.length > 80) return false
   if (!/\d/.test(s)) return false
-  // bare partner codes like naughty4610
-  if (/^[a-z]+\d+$/.test(s) && !s.includes('-')) return false
+  // bare partner codes like naughty4610 (letters+digits, no separator)
+  if (/^[a-z]+\d+$/.test(s) && !s.includes('-') && !s.includes('_')) return false
   // real product: letters-digits… or fc2-ppv-…
   if (/^[a-z]{1,15}-\d{2,7}/i.test(s)) return true
+  if (/^[a-z]{2,15}-[a-z]\d{1,7}/i.test(s)) return true // twav-d001
   if (/^fc2-ppv-\d+/i.test(s)) return true
+  // 1pondo bare date codes: 071126_001
+  if (/^\d{6,8}_\d{2,4}/.test(s)) return true
+  // caribbean bare: 062226-001
+  if (/^\d{6,8}-\d{2,4}/.test(s)) return true
   if (/-/.test(s) && /\d/.test(s)) return true
+  if (/_/.test(s) && /\d/.test(s)) return true
   return false
 }
 

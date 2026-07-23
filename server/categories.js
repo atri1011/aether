@@ -3,8 +3,44 @@
  * Aligned with missav.ai primary nav (login / ads / collections omitted).
  */
 
+/**
+ * Studio / list scrape category.
+ *
+ * extra:
+ *   filter       – Recombee filter expression (optional)
+ *   searchQuery  – Recombee search query used ONLY as scrape fallback
+ *                  (never recommendForUser — that mixes unrelated titles)
+ *   idPrefix     – post-filter item ids must start with one of these (lower)
+ */
 function scrape(slug, titleZh, titleEn, listPath = slug, extra = {}) {
   return { slug, titleZh, titleEn, listPath, kind: 'scrape', ...extra }
+}
+
+/** Normalize studio id prefixes for post-filter (accept string or string[]). */
+export function categoryIdPrefixes(cat) {
+  const raw = cat?.idPrefix
+  if (!raw) return []
+  const list = Array.isArray(raw) ? raw : [raw]
+  return list.map((p) => String(p || '').toLowerCase().trim()).filter(Boolean)
+}
+
+/**
+ * Keep only items whose id matches a studio prefix (when configured).
+ * Used for Recombee search fallback so /c/fc2 never shows random JAV.
+ * Prefix match: exact, `prefix-…`, `prefix_…`, or raw startsWith(prefix).
+ */
+export function filterItemsByCategoryPrefix(items, cat) {
+  const prefixes = categoryIdPrefixes(cat)
+  if (!prefixes.length) return items || []
+  return (items || []).filter((it) => {
+    const id = String(it?.id || '')
+      .toLowerCase()
+      .trim()
+    if (!id) return false
+    return prefixes.some(
+      (p) => id === p || id.startsWith(`${p}-`) || id.startsWith(`${p}_`) || id.startsWith(p),
+    )
+  })
 }
 
 function genre(slug, titleZh, titleEn, genre, listPath) {
@@ -60,34 +96,109 @@ export const CATEGORIES = [
   genre('genre-4k', '4K', '4K', '4K', 'genres/4K'),
 
   // ── Amateur ───────────────────────────────────────────────
-  scrape('siro', 'SIRO', 'SIRO'),
-  scrape('luxu', 'LUXU', 'LUXU'),
-  scrape('gana', 'GANA', 'GANA'),
-  scrape('maan', 'PRESTIGE PREMIUM', 'PRESTIGE PREMIUM'),
-  scrape('scute', 'S-CUTE', 'S-CUTE'),
-  scrape('ara', 'ARA', 'ARA'),
+  // searchQuery + idPrefix: when MissAV HTML scrape 403/empty, fall back to
+  // Recombee *search* (not recommendForUser) so /c/fc2 never shows random JAV.
+  scrape('siro', 'SIRO', 'SIRO', 'siro', {
+    searchQuery: 'SIRO',
+    idPrefix: ['siro'],
+  }),
+  scrape('luxu', 'LUXU', 'LUXU', 'luxu', {
+    searchQuery: 'LUXU',
+    idPrefix: ['luxu'],
+  }),
+  scrape('gana', 'GANA', 'GANA', 'gana', {
+    searchQuery: 'GANA',
+    idPrefix: ['gana'],
+  }),
+  scrape('maan', 'PRESTIGE PREMIUM', 'PRESTIGE PREMIUM', 'maan', {
+    searchQuery: 'MIUM',
+    idPrefix: ['mium', 'maan', 'pret'],
+  }),
+  scrape('scute', 'S-CUTE', 'S-CUTE', 'scute', {
+    searchQuery: 'S-CUTE',
+    idPrefix: ['scute'],
+  }),
+  scrape('ara', 'ARA', 'ARA', 'ara', {
+    searchQuery: 'ARA',
+    idPrefix: ['ara'],
+  }),
 
   // ── Uncensored studios ────────────────────────────────────
-  scrape('fc2', 'FC2', 'FC2'),
-  scrape('heyzo', 'HEYZO', 'HEYZO'),
-  scrape('tokyohot', '东京热', 'Tokyo Hot'),
-  scrape('1pondo', '一本道', '1pondo'),
-  scrape('caribbeancom', 'Caribbeancom', 'Caribbeancom'),
-  scrape('caribbeancompr', 'Caribbeancompr', 'Caribbeancompr'),
-  scrape('10musume', '10musume', '10musume'),
-  scrape('pacopacomama', 'pacopacomama', 'pacopacomama'),
-  scrape('gachinco', 'Gachinco', 'Gachinco'),
-  scrape('xxxav', 'XXX-AV', 'XXX-AV'),
-  scrape('marriedslash', '人妻斩', 'Married Slash'),
-  scrape('naughty4610', '顽皮 4610', 'Naughty 4610'),
-  scrape('naughty0930', '顽皮 0930', 'Naughty 0930'),
+  scrape('fc2', 'FC2', 'FC2', 'fc2', {
+    searchQuery: 'FC2-PPV',
+    idPrefix: ['fc2'],
+  }),
+  scrape('heyzo', 'HEYZO', 'HEYZO', 'heyzo', {
+    searchQuery: 'HEYZO',
+    idPrefix: ['heyzo'],
+  }),
+  scrape('tokyohot', '东京热', 'Tokyo Hot', 'tokyohot', {
+    searchQuery: 'Tokyo Hot',
+    idPrefix: ['tokyohot', 'tokyo-hot'],
+  }),
+  scrape('1pondo', '一本道', '1pondo', '1pondo', {
+    searchQuery: '1pondo',
+    // bare MissAV ids are date codes (071126_001); only apply prefix on Recombee rows
+    idPrefix: ['1pondo', 'pondo'],
+  }),
+  scrape('caribbeancom', 'Caribbeancom', 'Caribbeancom', 'caribbeancom', {
+    searchQuery: 'Caribbeancom',
+    idPrefix: ['caribbeancom'],
+  }),
+  scrape('caribbeancompr', 'Caribbeancompr', 'Caribbeancompr', 'caribbeancompr', {
+    searchQuery: 'Caribbeancompr',
+    idPrefix: ['caribbeancompr'],
+  }),
+  scrape('10musume', '10musume', '10musume', '10musume', {
+    searchQuery: '10musume',
+    idPrefix: ['10musume'],
+  }),
+  scrape('pacopacomama', 'pacopacomama', 'pacopacomama', 'pacopacomama', {
+    searchQuery: 'pacopacomama',
+    idPrefix: ['pacopacomama', 'paco'],
+  }),
+  scrape('gachinco', 'Gachinco', 'Gachinco', 'gachinco', {
+    searchQuery: 'Gachinco',
+    idPrefix: ['gachinco', 'gachi'],
+  }),
+  scrape('xxxav', 'XXX-AV', 'XXX-AV', 'xxxav', {
+    searchQuery: 'XXX-AV',
+    idPrefix: ['xxx-av', 'xxxav'],
+  }),
+  scrape('marriedslash', '人妻斩', 'Married Slash', 'marriedslash', {
+    searchQuery: 'C0930',
+    idPrefix: ['c0930', 'h0930'],
+  }),
+  scrape('naughty4610', '顽皮 4610', 'Naughty 4610', 'naughty4610', {
+    searchQuery: 'H4610',
+    idPrefix: ['h4610'],
+  }),
+  scrape('naughty0930', '顽皮 0930', 'Naughty 0930', 'naughty0930', {
+    searchQuery: 'H0930',
+    idPrefix: ['h0930'],
+  }),
 
   // ── Asia AV ───────────────────────────────────────────────
-  scrape('madou', '麻豆传媒', 'Madou'),
-  scrape('twav', 'TWAV', 'TWAV'),
-  scrape('furuke', 'Furuke', 'Furuke'),
-  scrape('klive', '韩国直播', 'Korean Live'),
-  scrape('clive', '中国直播', 'Chinese Live'),
+  scrape('madou', '麻豆传媒', 'Madou', 'madou', {
+    searchQuery: '麻豆',
+    idPrefix: ['madou', 'msd', 'mkym', 'cus-', 'pmc'],
+  }),
+  scrape('twav', 'TWAV', 'TWAV', 'twav', {
+    searchQuery: 'TWAV',
+    idPrefix: ['twav'],
+  }),
+  scrape('furuke', 'Furuke', 'Furuke', 'furuke', {
+    searchQuery: 'Furuke',
+    idPrefix: ['furuke', 'edmosaic'],
+  }),
+  scrape('klive', '韩国直播', 'Korean Live', 'klive', {
+    searchQuery: 'KBJ',
+    idPrefix: ['kbj', 'klive'],
+  }),
+  scrape('clive', '中国直播', 'Chinese Live', 'clive', {
+    searchQuery: 'CN-',
+    idPrefix: ['cn-', 'clive'],
+  }),
 ]
 
 /** Group meta for genres / makers index pages */

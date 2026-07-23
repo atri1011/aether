@@ -6,6 +6,7 @@ import {
   findCategory,
   resolveCategory,
   CATEGORY_GROUPS,
+  filterItemsByCategoryPrefix,
 } from '../categories.js'
 import {
   DEFAULT_SORT,
@@ -273,7 +274,8 @@ router.get(['/api/c/:slug', '/api/c/:kind/:name'], async (req, res) => {
   const filters = sanitizeVideoFilter(req.query.filters || req.query.filter)
   const sort = sanitizeVideoSort(req.query.sort, defaultSortForCategory(cat.slug))
   const count = recombeeCount(page, pageSize)
-  const key = `cat:v12:${locale}:${cat.slug}:${page}:${pageSize}:${filters}:${sort}`
+  // v13: studio scrape id accept + no recommendForUser for studio cats
+  const key = `cat:v13:${locale}:${cat.slug}:${page}:${pageSize}:${filters}:${sort}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       const category = {
@@ -300,15 +302,23 @@ router.get(['/api/c/:slug', '/api/c/:kind/:name'], async (req, res) => {
         try {
           const scraped = await pyScrapeList(listPath, page, locale, { filters, sort })
           if (scraped?.ok && scraped.items?.length) {
+            // Prefer MissAV list HTML. Soft idPrefix: if ≥half of rows match
+            // studio prefix, drop the rest (nav pollution). If almost none
+            // match (1pondo bare date codes), keep the full scrape set.
             const all = await mapScrapeItemsEnriched(scraped.items, locale)
-            const items = all.slice(0, pageSize)
+            const guarded = filterItemsByCategoryPrefix(all, cat)
+            const use =
+              cat.idPrefix && guarded.length >= Math.max(3, Math.ceil(all.length * 0.5))
+                ? guarded
+                : all
+            const items = use.slice(0, pageSize)
             return pack(items, 'scrape', {
-              hasMore: all.length >= SCRAPE_PAGE_FULL,
+              hasMore: use.length >= SCRAPE_PAGE_FULL,
               url: scraped.url,
             })
           }
         } catch {
-          // fall through
+          // fall through to targeted Recombee search / genre
         }
       }
 
@@ -334,12 +344,43 @@ router.get(['/api/c/:slug', '/api/c/:kind/:name'], async (req, res) => {
         }
       }
 
+      // Targeted Recombee search only — never recommendForUser for studio
+      // categories (that was the FC2→random-JAV bug: scrape miss + generic feed).
+      const searchQ =
+        cat.searchQuery ||
+        (cat.filter ? cat.titleEn || cat.slug : null) ||
+        (cat.kind === 'filter' ? cat.titleEn || cat.slug : null)
+
+      if (searchQ || cat.filter) {
+        const rbFilter = recombeeFilterFor(filters, cat.filter)
+        const raw = await searchItems(searchQ || cat.titleEn || cat.slug, {
+          count,
+          filter: rbFilter || cat.filter || undefined,
+        })
+        const mapped = mapRecomms(raw, locale)
+        // Studio prefix guard (scrape cats with idPrefix)
+        const guarded = filterItemsByCategoryPrefix(mapped.items, cat)
+        const pool = guarded.length ? guarded : mapped.items
+        // If idPrefix wiped everything, prefer empty over unrelated titles
+        // when this category is a studio scrape (searchQuery set).
+        const finalPool =
+          cat.searchQuery && cat.idPrefix && !guarded.length ? [] : pool
+        const items = finalPool.slice((page - 1) * pageSize, page * pageSize)
+        const capped = page * pageSize > config.recombeeMaxCount
+        return pack(items, 'recombee-search', {
+          recommId: mapped.recommId,
+          hasMore:
+            !capped &&
+            items.length >= pageSize &&
+            finalPool.length >= Math.min(count, page * pageSize),
+        })
+      }
+
+      // Generic rails (new/release/hot without filter) — still allow recommend
       const rbFilter = recombeeFilterFor(filters, cat.filter)
       const raw = rbFilter
         ? await searchItems(cat.titleEn || cat.slug, { count, filter: rbFilter })
-        : cat.filter
-          ? await searchItems(cat.titleEn || cat.slug, { count, filter: cat.filter })
-          : await recommendForUser({ count })
+        : await recommendForUser({ count })
       const mapped = mapRecomms(raw, locale)
       const items = mapped.items.slice((page - 1) * pageSize, page * pageSize)
       const capped = page * pageSize > config.recombeeMaxCount
