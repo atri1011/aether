@@ -21,7 +21,43 @@ npm run dev
 | `npm run dev` | Vite + API together |
 | `npm run dev:server` | API only |
 | `npm run build` | production frontend → `dist/` |
-| `npm start` | serve API + `dist/` (VPS) |
+| `npm start` | serve API + `dist/` (local prod-like) |
+
+## Production (Docker on VPS)
+
+Host OS may be too old for Node 20 (e.g. CentOS 7 glibc). Prefer Docker:
+
+```bash
+# first-time (on server)
+git clone https://github.com/atri1011/aether.git /opt/aether
+cd /opt/aether
+cp .env.example .env   # or create .env — see Env below
+# edit SITE_PASSWORD / AUTH_SECRET
+docker compose up -d --build
+# nginx: copy deploy/nginx-ljl.050415.xyz.conf → /etc/nginx/conf.d/ and reload
+```
+
+### Update deployment
+
+```bash
+ssh root@YOUR_VPS
+cd /opt/aether
+git pull origin main
+docker compose up -d --build
+docker logs -f aether   # optional
+```
+
+One-liner from your laptop (after `git push`):
+
+```bash
+ssh root@YOUR_VPS 'cd /opt/aether && git pull origin main && docker compose up -d --build'
+```
+
+Notes:
+
+- `.env` is **not** in git — keep `SITE_PASSWORD` / `AUTH_SECRET` only on the server.
+- Cache volume `aether-cache` persists across rebuilds.
+- Change password: edit `/opt/aether/.env` → `docker compose up -d`.
 
 ## Env
 

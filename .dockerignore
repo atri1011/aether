@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.cache
+.claude
+.superpowers
+.playwright-mcp
+artifacts
+design-system
+docs
+*.md
+.env
+server/py/__pycache__
+deploy

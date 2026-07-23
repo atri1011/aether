@@ -201,11 +201,15 @@ export function readSession(req) {
   return { ok: true, payload }
 }
 
-/** Express middleware — protect all /api/* except auth + health. */
+/** Express middleware — protect /api/* except auth + health; SPA/static stay open. */
 export function requireAuth(req, res, next) {
   if (!authEnabled()) return next()
 
   const path = req.path || ''
+  // Shell + static assets load without a session (gate UI lives in SPA).
+  // Only API routes are locked — password never ships to the client.
+  if (!path.startsWith('/api/')) return next()
+
   if (
     path === '/api/health' ||
     path === '/api/auth/status' ||
