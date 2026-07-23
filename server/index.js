@@ -206,14 +206,36 @@ function isLikelyVideoId(raw) {
   return false
 }
 
-function scrapeToSummary(it) {
-  const id = String(it.id || '')
-  if (!isLikelyVideoId(id)) return null
-  const base = id
+function stripMediaSuffix(id) {
+  return String(id || '')
     .toLowerCase()
     .replace(/-uncensored-leak$/i, '')
     .replace(/-chinese-subtitle$/i, '')
     .replace(/-english-subtitle$/i, '')
+}
+
+/** Accept scrape badge "H:MM:SS" / "M:SS", or numeric seconds. */
+function parseDurationSec(raw) {
+  if (raw == null || raw === '') return 0
+  if (typeof raw === 'number' && Number.isFinite(raw)) return Math.max(0, Math.floor(raw))
+  const s = String(raw).trim()
+  if (/^\d+(\.\d+)?$/.test(s)) return Math.max(0, Math.floor(Number(s)))
+  const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
+  if (!m) return 0
+  const a = Number(m[1])
+  const b = Number(m[2])
+  const c = m[3] != null ? Number(m[3]) : null
+  if (c != null) return a * 3600 + b * 60 + c
+  return a * 60 + b
+}
+
+function scrapeToSummary(it) {
+  const id = String(it.id || '')
+  if (!isLikelyVideoId(id)) return null
+  const base = stripMediaSuffix(id)
+  const actresses = Array.isArray(it.actresses)
+    ? it.actresses.map((a) => String(a || '').trim()).filter(Boolean)
+    : []
   return {
     id,
     code: base.toUpperCase(),
@@ -226,12 +248,12 @@ function scrapeToSummary(it) {
       }
       return raw || `https://fourhoi.com/${base}/cover-t.jpg`
     })(),
-    durationSec: 0,
-    releasedAt: null,
-    actresses: [],
-    genres: [],
-    tags: [],
-    labels: [],
+    durationSec: parseDurationSec(it.durationSec ?? it.duration ?? it.durationText),
+    releasedAt: it.releasedAt || null,
+    actresses,
+    genres: Array.isArray(it.genres) ? it.genres : [],
+    tags: Array.isArray(it.tags) ? it.tags : [],
+    labels: Array.isArray(it.labels) ? it.labels : [],
     type: /chinese-subtitle/i.test(id)
       ? 'chinese-subtitle'
       : /uncensored/i.test(id)
@@ -243,8 +265,73 @@ function scrapeToSummary(it) {
   }
 }
 
+/**
+ * MissAV list HTML has duration badges but no actress names.
+ * Fill missing meta with one Recombee search filtered by itemId OR-chain
+ * (public token cannot GET /items/{id}, but search+filter works).
+ */
+async function enrichSummariesFromRecombee(items, locale = 'zh') {
+  if (!items?.length) return items
+  const need = items.filter((it) => !it.durationSec || !it.actresses?.length || !it.releasedAt)
+  if (!need.length) return items
+
+  const lookup = []
+  const seen = new Set()
+  for (const it of need) {
+    for (const raw of [it.id, stripMediaSuffix(it.id)]) {
+      const id = String(raw || '')
+        .toLowerCase()
+        .replace(/"/g, '')
+        .trim()
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      lookup.push(id)
+    }
+  }
+  if (!lookup.length) return items
+
+  const filter = lookup.map((id) => `'itemId' == "${id}"`).join(' or ')
+  try {
+    const raw = await searchItems('a', {
+      count: Math.min(100, lookup.length),
+      filter,
+    })
+    const byId = new Map()
+    for (const r of raw?.recomms || []) {
+      const mapped = mapSummary(r, locale)
+      if (mapped?.id) byId.set(String(mapped.id).toLowerCase(), mapped)
+    }
+    if (!byId.size) return items
+
+    return items.map((it) => {
+      const meta = byId.get(String(it.id).toLowerCase()) || byId.get(stripMediaSuffix(it.id))
+      if (!meta) return it
+      return {
+        ...it,
+        // Prefer scrape title (locale page); fill only when empty
+        title: it.title || meta.title || it.code,
+        durationSec: it.durationSec || meta.durationSec || 0,
+        releasedAt: it.releasedAt || meta.releasedAt || null,
+        actresses: it.actresses?.length ? it.actresses : meta.actresses || [],
+        genres: it.genres?.length ? it.genres : meta.genres || [],
+        tags: it.tags?.length ? it.tags : meta.tags || [],
+        labels: it.labels?.length ? it.labels : meta.labels || [],
+        // Keep scrape-derived type/flags (subtitle/uncensored suffix); only fill unknown
+        type: it.type && it.type !== 'unknown' ? it.type : meta.type || it.type,
+      }
+    })
+  } catch {
+    // Enrichment is best-effort — list still works with duration-only scrape.
+    return items
+  }
+}
+
 function mapScrapeItems(items) {
   return (items || []).map(scrapeToSummary).filter(Boolean)
+}
+
+async function mapScrapeItemsEnriched(items, locale = 'zh') {
+  return enrichSummariesFromRecombee(mapScrapeItems(items), locale)
 }
 
 async function loadChineseSubtitleRail(locale, count = 12) {
@@ -268,7 +355,7 @@ async function loadChineseSubtitleRail(locale, count = 12) {
   try {
     const scraped = await pyScrapeList('chinese-subtitle', 1, locale)
     if (scraped?.ok && scraped.items?.length) {
-      return mapScrapeItems(scraped.items).slice(0, count)
+      return (await mapScrapeItemsEnriched(scraped.items, locale)).slice(0, count)
     }
   } catch {
     // empty rail
@@ -314,7 +401,7 @@ app.get('/api/home', async (req, res) => {
 /** Deferred home rails: latest + chinese subtitle + genre segments. */
 app.get('/api/home/more', async (req, res) => {
   const locale = localeOf(req)
-  const key = `home:more:v1:${locale}`
+  const key = `home:more:v2:${locale}`
   try {
     const { data, cache } = await withCache(key, config.ttl.home, async () => {
       const [segmentsRaw, chineseItems, newScrape] = await Promise.all([
@@ -342,7 +429,7 @@ app.get('/api/home/more', async (req, res) => {
 
       let latest = []
       if (newScrape?.ok && newScrape.items?.length) {
-        latest = mapScrapeItems(newScrape.items).slice(0, 16)
+        latest = (await mapScrapeItemsEnriched(newScrape.items, locale)).slice(0, 16)
       }
 
       return {
@@ -381,14 +468,14 @@ app.get('/api/search', async (req, res) => {
   if (!q) return sendError(res, 400, 'CONFIG', 'q is required')
 
   const count = page * pageSize
-  const key = `search:v5:${locale}:${q}:${page}:${pageSize}:${filters}:${sort}`
+  const key = `search:v7:${locale}:${q}:${page}:${pageSize}:${filters}:${sort}`
   try {
     const { data, cache } = await withCache(key, config.ttl.search, async () => {
       // 1) missav HTML search with filters/sort
       try {
         const scraped = await pyScrapeList(`search/${q}`, page, locale, { filters, sort })
         if (scraped?.ok && scraped.items?.length) {
-          const all = mapScrapeItems(scraped.items)
+          const all = await mapScrapeItemsEnriched(scraped.items, locale)
           const items = all.slice(0, pageSize)
           return {
             items,
@@ -439,14 +526,14 @@ app.get('/api/browse', async (req, res) => {
   const pageSize = Math.min(48, Math.max(1, Number(req.query.pageSize) || 24))
   const filters = sanitizeVideoFilter(req.query.filters || req.query.filter)
   const sort = sanitizeVideoSort(req.query.sort, DEFAULT_SORT.browse)
-  const key = `browse:v5:${locale}:${page}:${pageSize}:${filters}:${sort}`
+  const key = `browse:v7:${locale}:${page}:${pageSize}:${filters}:${sort}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       // browse = missav "new" list with optional filters/sort
       try {
         const scraped = await pyScrapeList('new', page, locale, { filters, sort })
         if (scraped?.ok && scraped.items?.length) {
-          const all = mapScrapeItems(scraped.items)
+          const all = await mapScrapeItemsEnriched(scraped.items, locale)
           const items = all.slice(0, pageSize)
           return {
             items,
@@ -600,7 +687,7 @@ app.get(['/api/c/:slug', '/api/c/:kind/:name'], async (req, res) => {
   const filters = sanitizeVideoFilter(req.query.filters || req.query.filter)
   const sort = sanitizeVideoSort(req.query.sort, defaultSortForCategory(cat.slug))
   const count = page * pageSize
-  const key = `cat:v9:${locale}:${cat.slug}:${page}:${pageSize}:${filters}:${sort}`
+  const key = `cat:v11:${locale}:${cat.slug}:${page}:${pageSize}:${filters}:${sort}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       const category = {
@@ -628,7 +715,7 @@ app.get(['/api/c/:slug', '/api/c/:kind/:name'], async (req, res) => {
         try {
           const scraped = await pyScrapeList(listPath, page, locale, { filters, sort })
           if (scraped?.ok && scraped.items?.length) {
-            const all = mapScrapeItems(scraped.items)
+            const all = await mapScrapeItemsEnriched(scraped.items, locale)
             const items = all.slice(0, pageSize)
             return pack(items, 'scrape', {
               hasMore: all.length >= SCRAPE_PAGE_FULL,
@@ -1008,7 +1095,7 @@ app.get('/api/actresses/:slug', async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1)
   const filters = sanitizeVideoFilter(req.query.filters || req.query.filter)
   const sort = sanitizeVideoSort(req.query.sort, DEFAULT_SORT.actress)
-  const key = `actresses:detail:v3:${locale}:${slug}:${page}:${filters}:${sort}`
+  const key = `actresses:detail:v5:${locale}:${slug}:${page}:${filters}:${sort}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       // Prefer list scrape with filters/sort on actress path
@@ -1023,7 +1110,7 @@ app.get('/api/actresses/:slug', async (req, res) => {
           sort,
         })
         if (list?.ok && list.items?.length) {
-          items = mapScrapeItems(list.items)
+          items = await mapScrapeItemsEnriched(list.items, locale)
           url = list.url
         }
       } catch {
@@ -1039,7 +1126,7 @@ app.get('/api/actresses/:slug', async (req, res) => {
         if (detail?.ok) {
           if (detail.actress) actress = { ...actress, ...detail.actress }
           if (!items.length && detail.items?.length) {
-            items = mapScrapeItems(detail.items)
+            items = await mapScrapeItemsEnriched(detail.items, locale)
             url = detail.url
             source = 'scrape-detail'
           }
@@ -1051,6 +1138,14 @@ app.get('/api/actresses/:slug', async (req, res) => {
           err.details = e.details || e.data
           throw err
         }
+      }
+
+      // List HTML has no actress names; use profile name (or slug) as last resort.
+      const actressName = actress.name || slug
+      if (actressName && items.length) {
+        items = items.map((it) =>
+          it.actresses?.length ? it : { ...it, actresses: [actressName] },
+        )
       }
 
       if (!items.length && !actress.name) {
@@ -1114,7 +1209,7 @@ function warmPopularCategories() {
       return
     }
     const sort = defaultSortForCategory(cat.slug)
-    const key = `cat:v9:${locale}:${cat.slug}:1:24::${sort}`
+    const key = `cat:v11:${locale}:${cat.slug}:1:24::${sort}`
     try {
       // Skip if already fresh
       const existing = await cacheGetEntry(key)
@@ -1128,7 +1223,7 @@ function warmPopularCategories() {
           if (!scraped?.ok || !scraped.items?.length) {
             throw new Error(scraped?.error || 'empty scrape')
           }
-          const all = mapScrapeItems(scraped.items)
+          const all = await mapScrapeItemsEnriched(scraped.items, locale)
           if (!all.length) throw new Error('no valid items')
           return {
             category: {
@@ -1171,10 +1266,27 @@ const server = app.listen(config.port, () => {
   warmPopularCategories()
 })
 
-function shutdown() {
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error(
+      `[aether] port ${config.port} already in use — another server is running.\n` +
+        `  Fix: stop the old process, or run: npx kill-port ${config.port}\n` +
+        `  (On Windows: netstat -ano | findstr :${config.port}  then taskkill /PID <pid> /F)`,
+    )
+    process.exit(1)
+  }
+  console.error('[aether] listen error', err)
+  process.exit(1)
+})
+
+let shuttingDown = false
+function shutdown(signal) {
+  if (shuttingDown) return
+  shuttingDown = true
+  console.log(`[aether] shutting down (${signal || 'signal'})…`)
   stopMediaWorker()
   server.close(() => process.exit(0))
   setTimeout(() => process.exit(0), 1500)
 }
-process.on('SIGINT', shutdown)
-process.on('SIGTERM', shutdown)
+process.on('SIGINT', () => shutdown('SIGINT'))
+process.on('SIGTERM', () => shutdown('SIGTERM'))

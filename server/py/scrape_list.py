@@ -339,15 +339,94 @@ def candidate_urls(
     return urls
 
 
-def parse_items(html: str) -> list[dict]:
+def id_specificity(raw: str) -> int:
+    """Prefer MissAV variant slugs over bare DVD codes.
+
+    On listing HTML, fourhoi cover paths carry the full product slug
+    (e.g. ssis-001-chinese-subtitle) while the title line only shows the
+    bare code (SSIS-001). Without this ranking, parse_items used to emit
+    both and half the grid lost the 中文字幕 badge.
+    """
+    s = (raw or "").lower()
+    score = 0
+    if "chinese-subtitle" in s:
+        score += 4
+    if "english-subtitle" in s:
+        score += 2
+    if "uncensored" in s:
+        score += 1
+    return score
+
+
+def normalize_id_for_filter(raw: str, filters: str | None) -> str:
+    """When MissAV filter=chinese-subtitle (etc.), force the matching slug.
+
+    Title-line codes are bare; under a subtitle filter the listed product is
+    the subtitled variant even if the bare code is all we parsed.
+    """
+    i = (raw or "").lower().strip()
+    if not i:
+        return i
+    f = (filters or "").strip().lower()
+    bid = base_id(i)
+    if f == "chinese-subtitle" and "chinese-subtitle" not in i:
+        return f"{bid}-chinese-subtitle"
+    if f == "english-subtitle" and "english-subtitle" not in i:
+        return f"{bid}-english-subtitle"
+    return i
+
+
+def parse_duration_sec(text: str) -> int:
+    """Parse MissAV badge times: H:MM:SS or M:SS → seconds."""
+    s = (text or "").strip()
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})(?::(\d{2}))?", s)
+    if not m:
+        return 0
+    a, b, c = m.group(1), m.group(2), m.group(3)
+    if c is not None:
+        return int(a) * 3600 + int(b) * 60 + int(c)
+    return int(a) * 60 + int(b)
+
+
+def parse_items(html: str, filters: str | None = None) -> list[dict]:
     """Extract video cards only.
 
     Prefer fourhoi cover URLs (actual thumbnails on listing grids).
     Never trust bare page hrefs alone — footer links (madou, history, upload…)
     look like slugs and used to pollute the grid with blank covers.
+
+    Dedup by base DVD code, keeping the most specific MissAV variant
+    (chinese-subtitle / english-subtitle / uncensored-leak). This matches
+    missav.ai card identity: one grid tile → one product slug.
+
+    Also pulls duration from each thumbnail card badge (H:MM:SS). Actress
+    names are not on list HTML — the Node layer enriches those via Recombee.
     """
     # Cover order ≈ listing order on missav pages
     covers = re.findall(r"https://fourhoi\.com/([a-z0-9\-]+)/cover-[nt]\.jpg", html, re.I)
+
+    # Duration lives inside each `thumbnail group` card, near the cover.
+    # Split by card root so we don't attach the next tile's badge to this id.
+    duration_map: dict[str, int] = {}
+    for block in re.split(r'class="thumbnail\s+group"', html)[1:]:
+        cover_m = re.search(
+            r"fourhoi\.com/([a-z0-9\-]+)/cover-[nt]\.jpg", block, re.I
+        )
+        if not cover_m:
+            continue
+        cid = cover_m.group(1).lower()
+        dur_m = re.search(
+            r'bg-opacity-75">\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*<', block
+        )
+        if not dur_m:
+            dur_m = re.search(r">(\d{1,2}:\d{2}:\d{2})\s*<", block)
+        if not dur_m:
+            continue
+        sec = parse_duration_sec(dur_m.group(1))
+        if sec <= 0:
+            continue
+        duration_map[cid] = sec
+        duration_map.setdefault(base_id(cid), sec)
 
     titles = re.findall(
         r"text-secondary[^>]*>\s*([A-Z0-9][A-Z0-9\-]+)\s+([^<\n]{3,160})",
@@ -368,34 +447,45 @@ def parse_items(html: str) -> list[dict]:
         # also index without suffix
         title_map.setdefault(base_id(key), cleaned)
 
-    ids: list[str] = []
-    seen: set[str] = set()
+    # base_id → (id, order) — keep first-seen order, upgrade specificity
+    chosen: dict[str, tuple[str, int]] = {}
+    order_n = 0
 
-    def push(raw: str):
-        i = (raw or "").lower().strip()
-        if not i or i in seen:
+    def push(raw: str) -> None:
+        nonlocal order_n
+        i = normalize_id_for_filter((raw or "").lower().strip(), filters)
+        if not i or not is_video_id(i):
             return
-        if not is_video_id(i):
+        bid = base_id(i)
+        prev = chosen.get(bid)
+        if prev is None:
+            chosen[bid] = (i, order_n)
+            order_n += 1
             return
-        seen.add(i)
-        ids.append(i)
+        prev_id, prev_ord = prev
+        if id_specificity(i) > id_specificity(prev_id):
+            # Keep original grid position; only swap to the richer slug.
+            chosen[bid] = (i, prev_ord)
 
     for c in covers:
         push(c)
 
-    # Secondary: title codes that look like DVD ids (when cover CDN missed)
+    # Secondary: title codes when cover CDN missed this card
     for code, _ in titles:
         push(code.lower())
 
+    ordered = sorted(chosen.values(), key=lambda t: t[1])
     items = []
-    for i in ids:
+    for i, _ in ordered:
         bid = base_id(i)
         title = title_map.get(i) or title_map.get(bid) or ""
         items.append(
             {
                 "id": i,
                 "title": title,
+                # Media CDN uses bare code; subtitle/leak suffixes 404 on fourhoi
                 "coverUrl": f"https://fourhoi.com/{bid}/cover-t.jpg",
+                "durationSec": duration_map.get(i) or duration_map.get(bid) or 0,
             }
         )
     return items
@@ -477,7 +567,7 @@ def scrape(
                 "sort": sort,
             }
 
-        items = parse_items(r.text)
+        items = parse_items(r.text, filters=filters)
         if not items:
             return {
                 "ok": False,

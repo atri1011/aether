@@ -54,8 +54,9 @@ export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: n
     return { uncensored, chinese }
   }, [video.hasChineseSubtitle, video.id, video.isUncensoredLeak, video.type])
 
+  // Only show duration / actress when we actually have them (avoid "— · " noise).
   const sub = [
-    formatDuration(video.durationSec),
+    video.durationSec > 0 ? formatDuration(video.durationSec) : '',
     video.actresses?.[0] ? video.actresses[0] : '',
   ]
     .filter(Boolean)
