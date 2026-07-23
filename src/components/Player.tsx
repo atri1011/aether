@@ -241,6 +241,24 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
 
   const showQuality = levels.length > 1
 
+  // Lock body scroll while theatre mode is open (mobile URL bar / overscroll)
+  useEffect(() => {
+    if (!theatre) return
+    const root = document.documentElement
+    root.classList.add('drawer-scroll-lock')
+    return () => root.classList.remove('drawer-scroll-lock')
+  }, [theatre])
+
+  // Escape exits theatre (same chrome pattern as drawer)
+  useEffect(() => {
+    if (!theatre) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onToggleTheatre()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [theatre, onToggleTheatre])
+
   return (
     <div className={`player-shell${theatre ? ' theatre' : ''}`}>
       <video

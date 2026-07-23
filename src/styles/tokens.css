@@ -48,12 +48,19 @@
 
   /* Layout */
   --sidebar-w: 252px;
-  --topbar-h: 60px;
+  --topbar-h: 56px;
   --max: 1400px;
   --radius-sm: 12px;
   --radius: 18px;
   --radius-lg: 24px;
   --radius-pill: 999px;
+  --touch-min: 44px;
+  /* Notch / home indicator (iOS / Android gesture bar) */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --topbar-offset: calc(var(--topbar-h) + var(--safe-top));
 
   /* Motion */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);

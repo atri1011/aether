@@ -6,20 +6,51 @@
   box-sizing: border-box;
 }
 
+html {
+  /* Prefer dynamic viewport on mobile browsers (URL bar show/hide) */
+  height: 100%;
+  height: 100dvh;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
 html,
 body,
 #root {
   min-height: 100%;
+  min-height: 100dvh;
 }
 
 body {
   margin: 0;
+  /* Avoid horizontal rubber-band revealing white/edge gutters */
+  overflow-x: clip;
+  overscroll-behavior-y: contain;
+  -webkit-tap-highlight-color: rgba(124, 140, 255, 0.18);
   background:
     radial-gradient(980px 560px at 8% -10%, rgba(124, 140, 255, 0.14), transparent 58%),
     radial-gradient(820px 480px at 100% 0%, var(--violet-whisper), transparent 54%),
     radial-gradient(720px 460px at 72% 100%, var(--rose-whisper), transparent 62%),
     linear-gradient(180deg, #0d1018 0%, var(--bg) 42%, #0a0c12 100%);
-  background-attachment: fixed;
+  /* fixed attachment is janky / broken on many mobile browsers */
+  background-attachment: scroll;
+}
+
+@media (min-width: 961px) and (hover: hover) {
+  body {
+    background-attachment: fixed;
+  }
+}
+
+/* Drawer / theatre open: lock background page scroll.
+   Do NOT set touch-action:none on html — that blocks drawer/sidebar scrolling. */
+html.drawer-scroll-lock,
+html.drawer-scroll-lock body {
+  overflow: hidden;
+  overscroll-behavior: none;
+  /* Keep height stable when scrollbar disappears (desktop) */
+  scrollbar-gutter: stable;
 }
 
 /* Soft ambient grain — lower opacity for comfort */
@@ -43,9 +74,25 @@ a {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
   color: inherit;
+}
+
+/* iOS Safari zooms focused inputs under 16px — keep controls readable */
+input,
+select,
+textarea {
+  font-size: max(1rem, 16px);
+}
+
+@media (min-width: 961px) {
+  input,
+  select,
+  textarea {
+    font-size: inherit;
+  }
 }
 
 /* Native <select> menus often ignore page colors on Windows unless forced */

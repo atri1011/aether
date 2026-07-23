@@ -162,14 +162,18 @@ export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: n
       className={`card${previewing ? ' is-previewing' : ''}${previewReady && previewing ? ' is-preview-ready' : ''}`}
       to={detailPath}
       style={{ ['--i' as string]: Math.min(index, 12) }}
-      aria-label={previewing ? `${title} — 再次点击进入详情` : title}
-      title={previewing ? '再次点击进入详情' : undefined}
+      aria-label={previewing ? `${title} — ${tr('previewHint')}` : title}
+      title={previewing ? tr('previewHint') : undefined}
       onClick={onActivate}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onActivate(e)
       }}
       onMouseLeave={() => {
-        // Desktop: leaving the card ends preview (missav-like).
+        // Desktop pointer: leaving the card ends preview (missav-like).
+        // Touch devices often fire a synthetic mouseleave — ignore coarse pointers.
+        if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
+          return
+        }
         if (previewing) stopPreview()
       }}
     >
@@ -231,7 +235,7 @@ export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: n
         <span className="card-play" aria-hidden="true" />
         {previewing && (
           <span className="card-preview-badge" aria-hidden="true">
-            预览中 · 再点进入
+            {tr('previewHint')}
           </span>
         )}
         {video.durationSec != null && video.durationSec > 0 && (
