@@ -2,6 +2,16 @@
 
 Magazine-editorial frontend + Node proxy for MissAV-class metadata (Recombee) and surrit HLS playback.
 
+## Docs
+
+| Doc | Audience |
+|-----|----------|
+| **[docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)** | Local setup, architecture, conventions, debug, deploy checklist |
+| **[docs/OPTIMIZATION.md](./docs/OPTIMIZATION.md)** | Backlog of perf/security/structure work — phases, steps, acceptance |
+| [CLAUDE.md](./CLAUDE.md) | Short map for AI assistants |
+| `../docs/api-contract.md` | Upstream + DTO contract (sibling of this repo) |
+| `design-system/aether/` | UI design system |
+
 ## Quick start
 
 ```bash
