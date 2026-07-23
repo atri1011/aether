@@ -1090,53 +1090,110 @@ app.get('/api/actresses/search', async (req, res) => {
 
 app.get('/api/actresses/:slug', async (req, res) => {
   const locale = localeOf(req)
-  const slug = decodeURIComponent(String(req.params.slug || '').trim())
+  // Express already decodes once; also peel accidental double-encoding from
+  // encodeURIComponent(Link) + route matching edge cases.
+  let slug = String(req.params.slug || '').trim()
+  for (let i = 0; i < 2; i++) {
+    try {
+      const next = decodeURIComponent(slug)
+      if (next === slug) break
+      slug = next
+    } catch {
+      break
+    }
+  }
+  slug = slug.trim()
   if (!slug) return sendError(res, 400, 'CONFIG', 'slug required')
   const page = Math.max(1, Number(req.query.page) || 1)
   const filters = sanitizeVideoFilter(req.query.filters || req.query.filter)
   const sort = sanitizeVideoSort(req.query.sort, DEFAULT_SORT.actress)
-  const key = `actresses:detail:v5:${locale}:${slug}:${page}:${filters}:${sort}`
+  // v7: pagination via rel=next / coverCount (not unique item length)
+  const key = `actresses:detail:v7:${locale}:${slug}:${page}:${filters}:${sort}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
-      // Prefer list scrape with filters/sort on actress path
       let actress = { slug, name: slug }
       let items = []
       let source = 'scrape'
       let url
+      let lastErr = null
+      // Prefer HTML pagination (rel=next / max page). Unique DVD count after
+      // base_id dedupe can be 6–9 on a still-full MissAV page of 12 covers —
+      // never stop infinite scroll just because unique items < SCRAPE_PAGE_FULL.
+      let hasMore = false
+      let maxPage = page
 
-      try {
-        const list = await pyScrapeList(`actresses/${slug}`, page, locale, {
-          filters,
-          sort,
-        })
-        if (list?.ok && list.items?.length) {
-          items = await mapScrapeItemsEnriched(list.items, locale)
-          url = list.url
-        }
-      } catch {
-        // ignore
-      }
-
-      // Profile meta + fallback videos via detail scraper
+      // 1) Primary: dedicated actress detail scraper (profile + works in one GET).
+      //    Avoid running list scrape first — dual CF traffic often yields
+      //    "no items parsed" on the second hop right after search.
       try {
         const detail = await pyScrapeActressDetail(slug, page, locale, {
           sort,
           filter: filters,
         })
         if (detail?.ok) {
-          if (detail.actress) actress = { ...actress, ...detail.actress }
-          if (!items.length && detail.items?.length) {
+          if (detail.actress) {
+            // Page 2+ HTML often omits portrait; never clobber non-empty avatar/id.
+            const next = detail.actress
+            actress = {
+              ...actress,
+              ...next,
+              avatarUrl: next.avatarUrl || actress.avatarUrl || '',
+              actressId: next.actressId || actress.actressId || '',
+              name:
+                (next.name && next.name !== slug ? next.name : null) ||
+                (actress.name && actress.name !== slug ? actress.name : null) ||
+                next.name ||
+                actress.name ||
+                slug,
+              stats: next.stats || actress.stats || null,
+              birthday: next.birthday || actress.birthday || null,
+              age: next.age != null ? next.age : actress.age,
+              videoCount:
+                next.videoCount != null ? next.videoCount : actress.videoCount,
+            }
+          }
+          if (detail.items?.length) {
             items = await mapScrapeItemsEnriched(detail.items, locale)
             url = detail.url
             source = 'scrape-detail'
+          } else if (detail.url) {
+            url = detail.url
+            source = 'scrape-detail'
           }
+          if (typeof detail.hasMore === 'boolean') hasMore = detail.hasMore
+          if (Number(detail.maxPage) > 0) maxPage = Number(detail.maxPage)
+        } else if (detail && detail.ok === false) {
+          lastErr = detail.error || 'actress detail scrape failed'
         }
       } catch (e) {
+        lastErr = e.message || 'actress detail scrape failed'
         if (!items.length) {
-          const err = new Error(e.message || 'actress detail scrape failed')
-          err.code = 'UPSTREAM'
-          err.details = e.details || e.data
-          throw err
+          // keep going to list fallback
+        }
+      }
+
+      // 2) Fallback: generic list scraper (same path, good for filter chips).
+      if (!items.length) {
+        try {
+          const list = await pyScrapeList(`actresses/${slug}`, page, locale, {
+            filters,
+            sort,
+          })
+          if (list?.ok && list.items?.length) {
+            items = await mapScrapeItemsEnriched(list.items, locale)
+            url = list.url || url
+            source = 'scrape'
+            // List scraper has no pagination meta; full MissAV page ≈ 12 covers.
+            // After base_id dedupe a "full" page may still be only 6–9 uniques —
+            // keep loading while we got a non-empty page (stop on empty only).
+            if (typeof list.hasMore === 'boolean') hasMore = list.hasMore
+            else hasMore = items.length > 0
+          } else if (list && list.ok === false) {
+            lastErr = lastErr || list.error || 'list scrape failed'
+            hasMore = false
+          }
+        } catch (e) {
+          lastErr = lastErr || e.message || 'list scrape failed'
         }
       }
 
@@ -1148,18 +1205,36 @@ app.get('/api/actresses/:slug', async (req, res) => {
         )
       }
 
-      if (!items.length && !actress.name) {
-        const err = new Error(`actress not found: ${slug}`)
-        err.code = 'NOT_FOUND'
+      // Hard miss only when both scrapers failed and we never got a real profile.
+      const hasProfile =
+        actress &&
+        actress.name &&
+        actress.name !== slug &&
+        (actress.avatarUrl || actress.stats || actress.birthday)
+      if (!items.length && !hasProfile && lastErr) {
+        const msg = String(lastErr)
+        const err = new Error(
+          msg === 'no items parsed' || /status 403|status 404|no candidate/i.test(msg)
+            ? `actress not found or blocked: ${slug}`
+            : msg,
+        )
+        err.code = /404|not found/i.test(msg) ? 'NOT_FOUND' : 'UPSTREAM'
+        err.details = lastErr
         throw err
       }
+
+      // Empty page ⇒ end of list even if earlier meta said otherwise.
+      if (!items.length) hasMore = false
 
       return {
         actress,
         items,
         page,
-        pageSize: items.length || 12,
-        hasMore: items.length >= SCRAPE_PAGE_FULL,
+        // MissAV grid is ~12 tiles; pageSize is for client fallbacks, not item.length
+        // (deduped uniques can be < 12 while more pages still exist).
+        pageSize: 12,
+        hasMore,
+        maxPage,
         filters,
         sort,
         filterOptions: localizeVideoFilters(locale),

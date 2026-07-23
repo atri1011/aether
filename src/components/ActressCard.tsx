@@ -10,7 +10,9 @@ export function ActressCard({
   index?: number
 }) {
   const { tr } = useLocale()
-  const to = `/actress/${encodeURIComponent(actress.slug)}`
+  // Pass raw slug — React Router encodes path params. Pre-encoding here double-encodes
+  // CJK names (%E4… → %25E4…) and breaks /api/actresses/:slug after one decode.
+  const to = `/actress/${actress.slug}`
   const subParts: string[] = []
   if (actress.rank != null) {
     subParts.push(

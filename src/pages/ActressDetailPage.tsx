@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { ActressProfile, VideoFilterOptions, VideoSummary } from '../types'
@@ -10,11 +10,66 @@ import { VideoFilterBar } from '../components/VideoFilterBar'
 import { useVideoListQuery } from '../hooks/useVideoListQuery'
 import { VideoSkeletonGrid } from '../components/Skeleton'
 
+/** Merge page-N profile into existing hero meta.
+ *
+ * MissAV only embeds the portrait on page 1. Infinite scroll page 2+ returns
+ * actress={name, avatarUrl:""} and used to wipe the hero avatar.
+ */
+function mergeActressProfile(
+  prev: ActressProfile | null,
+  next: ActressProfile | null | undefined,
+): ActressProfile | null {
+  if (!next) return prev
+  if (!prev) return next
+  const nextName = (next.name || '').trim()
+  const prevName = (prev.name || '').trim()
+  const keepName =
+    nextName && nextName !== next.slug
+      ? nextName
+      : prevName && prevName !== prev.slug
+        ? prevName
+        : nextName || prevName || next.slug
+  return {
+    ...prev,
+    ...next,
+    name: keepName,
+    avatarUrl: next.avatarUrl || prev.avatarUrl || '',
+    actressId: next.actressId || prev.actressId,
+    stats: next.stats || prev.stats,
+    birthday: next.birthday || prev.birthday,
+    age: next.age != null ? next.age : prev.age,
+    videoCount: next.videoCount != null ? next.videoCount : prev.videoCount,
+    debutYear: next.debutYear != null ? next.debutYear : prev.debutYear,
+    rank: next.rank != null ? next.rank : prev.rank,
+  }
+}
+
+function avatarFromProfile(profile: ActressProfile | null): string {
+  if (!profile) return ''
+  if (profile.avatarUrl) return profile.avatarUrl
+  if (profile.actressId) return `https://fourhoi.com/actress/${profile.actressId}-t.jpg`
+  return ''
+}
+
 export function ActressDetailPage() {
   const { slug: rawSlug = '' } = useParams()
-  const slug = decodeURIComponent(rawSlug)
+  // React Router may leave one layer of encoding; peel safely (never throw on bad %).
+  const slug = (() => {
+    let s = String(rawSlug || '').trim()
+    for (let i = 0; i < 2; i++) {
+      try {
+        const next = decodeURIComponent(s)
+        if (next === s) break
+        s = next
+      } catch {
+        break
+      }
+    }
+    return s.trim()
+  })()
   const { locale, tr } = useLocale()
   const [profile, setProfile] = useState<ActressProfile | null>(null)
+  const [avatarBroken, setAvatarBroken] = useState(false)
   const [filterOptions, setFilterOptions] = useState<VideoFilterOptions | null>(null)
   const { query, setQuery } = useVideoListQuery({ sort: 'released_at' })
 
@@ -34,7 +89,10 @@ export function ActressDetailPage() {
   const loader = useCallback(
     async (page: number) => {
       const d = await api.actressDetail(slug, locale, page, query)
-      if (d.actress) setProfile(d.actress)
+      if (d.actress) {
+        // Never replace a rich page-1 profile with a bare page-N shell.
+        setProfile((prev) => mergeActressProfile(prev, d.actress))
+      }
       if (d.filterOptions) setFilterOptions(d.filterOptions)
       const hasMore =
         typeof d.hasMore === 'boolean' ? d.hasMore : (d.items?.length || 0) >= (d.pageSize || 12)
@@ -57,17 +115,38 @@ export function ActressDetailPage() {
 
   useEffect(() => {
     setProfile(null)
+    setAvatarBroken(false)
   }, [slug, locale])
 
   const name = profile?.name || slug
   const stats = profile?.stats
+  const avatarUrl = useMemo(() => avatarFromProfile(profile), [profile])
+
+  // New avatar URL (e.g. page-1 load) should clear a prior broken state.
+  useEffect(() => {
+    setAvatarBroken(false)
+  }, [avatarUrl])
 
   return (
     <>
       <section className="section actress-hero">
         <div className="actress-hero-avatar">
-          {profile?.avatarUrl ? (
-            <img src={profile.avatarUrl} alt={name} referrerPolicy="no-referrer" />
+          {avatarUrl && !avatarBroken ? (
+            <img
+              src={avatarUrl}
+              alt={name}
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                const el = e.currentTarget
+                // One retry via actressId CDN path (search rail style).
+                if (profile?.actressId && !el.dataset.fb) {
+                  el.dataset.fb = '1'
+                  el.src = `https://fourhoi.com/actress/${profile.actressId}-t.jpg`
+                  return
+                }
+                setAvatarBroken(true)
+              }}
+            />
           ) : (
             <div className="actress-avatar-placeholder" />
           )}

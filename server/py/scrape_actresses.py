@@ -281,9 +281,22 @@ def parse_actress_profile(html: str) -> dict:
         name = re.sub(r"\s*-\s*MissAV.*$", "", name, flags=re.I).strip()
 
     avatar = ""
-    m_av = re.search(r'(https://fourhoi\.com/actress/\d+(?:-t)?\.jpg)', html, re.I)
+    actress_id = ""
+    m_av = re.search(
+        r'(https://fourhoi\.com/actress/(\d+)(?:-t)?\.(?:jpg|jpeg|webp|png))',
+        html,
+        re.I,
+    )
     if m_av:
         avatar = m_av.group(1)
+        actress_id = m_av.group(2)
+    if not actress_id:
+        m_id = re.search(r"fourhoi\.com/actress/(\d+)", html, re.I)
+        if m_id:
+            actress_id = m_id.group(1)
+    # Page 2+ of works often omits the portrait; synthesize CDN URL from id when present.
+    if not avatar and actress_id:
+        avatar = f"https://fourhoi.com/actress/{actress_id}-t.jpg"
 
     # Body stats e.g. 160cm / 34D - 24 - 35
     stats = None
@@ -309,12 +322,58 @@ def parse_actress_profile(html: str) -> dict:
         if m_b.group(2):
             age = int(m_b.group(2))
 
-    return {
+    video_count = None
+    # Profile / card copy: "357 条影片" / "357 videos" / "共 101" near works
+    for pat in (
+        r"(\d[\d,]*)\s*(?:条影片|部影片|videos?|作品)",
+        r"共\s*(\d[\d,]*)\s*(?:部|条|个)?",
+    ):
+        m_vc = re.search(pat, html, re.I)
+        if not m_vc:
+            continue
+        try:
+            n = int(m_vc.group(1).replace(",", ""))
+        except ValueError:
+            continue
+        if 1 <= n <= 50_000:
+            video_count = n
+            break
+
+    out = {
         "name": name,
         "avatarUrl": avatar,
+        "actressId": actress_id or "",
         "stats": stats,
         "birthday": birthday,
         "age": age,
+    }
+    if video_count is not None:
+        out["videoCount"] = video_count
+    return out
+
+
+def parse_list_pagination(html: str, page: int = 1) -> dict:
+    """Detect whether MissAV listing has another page after `page`.
+
+    Deduped unique DVD codes per page can drop to 6–9 while the site still shows
+    a full 12-cover grid + rel=next. Never use unique item count alone for hasMore.
+    """
+    page = max(1, int(page or 1))
+    has_next = bool(re.search(r'rel=["\']next["\']', html or "", re.I))
+    # page=N appears both raw and as &amp;page=N in hrefs
+    pages = [int(x) for x in re.findall(r"(?:[?&]|&amp;)page=(\d+)", html or "", re.I)]
+    max_page = max(pages) if pages else page
+    cover_n = len(
+        re.findall(r"fourhoi\.com/[a-z0-9\-]+/cover-[nt]\.jpg", html or "", re.I)
+    )
+    # Full MissAV grid is 12 covers; a full grid almost always continues.
+    has_more = bool(has_next or max_page > page or cover_n >= 12)
+    if cover_n == 0 and not has_next:
+        has_more = False
+    return {
+        "hasMore": has_more,
+        "maxPage": max_page if max_page >= page else page,
+        "coverCount": cover_n,
     }
 
 
@@ -456,6 +515,27 @@ def scrape_ranking(locale: str = "zh") -> dict:
     return result
 
 
+def _detail_slug_variants(slug: str) -> list[str]:
+    """URL path variants for an actress slug (encoding + light normalization)."""
+    raw = unquote(slug or "").strip()
+    if not raw:
+        return []
+    # Collapse whitespace; keep fullwidth / halfwidth parens as-is (MissAV uses both).
+    collapsed = re.sub(r"\s+", " ", raw).strip()
+    variants: list[str] = []
+    for name in (raw, collapsed):
+        if name and name not in variants:
+            variants.append(name)
+        enc = quote(name, safe="")
+        if enc and enc not in variants:
+            variants.append(enc)
+        # encodeURIComponent-style: keep () unescaped (search rail / browser links)
+        enc_js = quote(name, safe="!'()*-._~")
+        if enc_js and enc_js not in variants:
+            variants.append(enc_js)
+    return variants
+
+
 def scrape_detail(
     slug: str,
     page: int = 1,
@@ -468,40 +548,61 @@ def scrape_detail(
     if not slug:
         return {"ok": False, "error": "slug required"}
 
-    # path segment may be raw JP characters
-    encoded = quote(slug, safe="")
     query = {}
     if sort:
         query["sort"] = sort
+    # MissAV listing query is `filters=` (plural), same as /new /search /genres.
+    # Older code sent `filter=` which silently ignored chips and wasted CF budget.
     if filt:
-        query["filter"] = filt
+        query["filters"] = filt
     if page > 1:
         query["page"] = str(page)
 
     loc = site_locale(locale)
+    names = _detail_slug_variants(slug)
     urls: list[str] = []
+    seen_u: set[str] = set()
+
+    def push(u: str) -> None:
+        if u and u not in seen_u:
+            seen_u.add(u)
+            urls.append(u)
+
+    # Prefer bare + localized paths first (dm* mirrors are session-ish and 403 often).
     for host in bases():
-        for name in (encoded, slug):
+        for name in names:
             if loc == "cn":
-                urls += [
-                    f"{host}/actresses/{name}",
-                    f"{host}/cn/actresses/{name}",
-                    f"{host}/dm14/cn/actresses/{name}",
-                ]
+                for pref in ("", "cn", "zh", "dm14/cn", "dm14"):
+                    if pref:
+                        push(f"{host}/{pref}/actresses/{name}")
+                    else:
+                        push(f"{host}/actresses/{name}")
             else:
-                urls += [
-                    f"{host}/{loc}/actresses/{name}",
-                    f"{host}/dm14/{loc}/actresses/{name}",
-                ]
-    # attach query
+                for pref in (loc, "", f"dm14/{loc}", "dm14"):
+                    if pref:
+                        push(f"{host}/{pref}/actresses/{name}")
+                    else:
+                        push(f"{host}/actresses/{name}")
+
     if query:
         qstr = "?" + urlencode(query)
         urls = [u + qstr for u in urls]
 
     def parse(html: str):
+        # CF challenge / soft-block pages are short and lack listing chrome.
+        if not html or len(html) < 8000:
+            return None
+        if "fourhoi.com" not in html and "thumbnail" not in html:
+            return None
+
         profile = parse_actress_profile(html)
+        # Ranking / directory pages sometimes match h1 + actress avatars but have
+        # no video covers — treat as non-detail so we try the next candidate URL.
+        name = (profile.get("name") or "").strip()
+        if name and re.search(r"(女优排行|女優排行|Actress\s*Ranking)", name, re.I):
+            return None
+
         videos = parse_items(html)
-        # filter junk ids that are navigation
         clean = []
         seen = set()
         for v in videos:
@@ -512,10 +613,21 @@ def scrape_detail(
                 continue
             seen.add(i)
             clean.append(v)
-        if not profile.get("name") and not clean:
+
+        # Need either a real profile identity or at least one video card.
+        if not name and not clean:
             return None
-        if not profile.get("name"):
+        if not name:
             profile["name"] = slug
+        # Reject pure nav shells that only show other actress avatars (no works).
+        if not clean and "cover-" not in html and page == 1:
+            # Empty works can still be valid; only reject if it looks like a
+            # directory rail (many actress avatars, no product covers).
+            actress_avs = len(re.findall(r"fourhoi\.com/actress/\d+", html, re.I))
+            if actress_avs >= 6:
+                return None
+
+        paging = parse_list_pagination(html, page)
         return {
             "actress": {
                 "slug": slug,
@@ -524,13 +636,22 @@ def scrape_detail(
             "items": clean,
             "count": len(clean),
             "page": page,
+            "hasMore": paging["hasMore"],
+            "maxPage": paging["maxPage"],
+            "coverCount": paging["coverCount"],
             "mode": "detail",
         }
 
-    result = fetch_first_ok(urls, parse)
+    # More retries — actress detail is a single-page UX path; CF blips are common
+    # right after search/list traffic from the same client IP.
+    result = fetch_first_ok(urls, parse, retries=3)
     result.setdefault("page", page)
     result.setdefault("locale", normalize_locale(locale))
     result.setdefault("slug", slug)
+    # Safe defaults if parse never set them (error paths).
+    if "hasMore" not in result:
+        # Only assume more when we got a full-ish unique page — weak fallback.
+        result["hasMore"] = bool(result.get("ok") and (result.get("count") or 0) >= 12)
     return result
 
 
