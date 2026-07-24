@@ -224,8 +224,8 @@ router.get('/api/actresses/:slug', async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1)
   const filters = sanitizeVideoFilter(req.query.filters || req.query.filter)
   const sort = sanitizeVideoSort(req.query.sort, DEFAULT_SORT.actress)
-  // v8: CJK name===slug is valid profile; scrape falls back when ?sort= is CF-blocked
-  const key = `actresses:detail:v8:${locale}:${slug}:${page}:${filters}:${sort}`
+  // v9: never bare actress URLs (CF JS challenge); page-only fallback for chips
+  const key = `actresses:detail:v9:${locale}:${slug}:${page}:${filters}:${sort}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       let actress = { slug, name: slug }
@@ -264,10 +264,10 @@ router.get('/api/actresses/:slug', async (req, res) => {
           if (detail.items?.length) {
             items = await mapScrapeItemsEnriched(detail.items, locale)
             url = detail.url
-            source = 'scrape-detail'
+            source = detail.sortFallback ? 'scrape-detail-fallback' : 'scrape-detail'
           } else if (detail.url) {
             url = detail.url
-            source = 'scrape-detail'
+            source = detail.sortFallback ? 'scrape-detail-fallback' : 'scrape-detail'
           }
           if (typeof detail.hasMore === 'boolean') hasMore = detail.hasMore
           if (Number(detail.maxPage) > 0) maxPage = Number(detail.maxPage)
@@ -276,6 +276,50 @@ router.get('/api/actresses/:slug', async (req, res) => {
         }
       } catch (e) {
         lastErr = e.message || 'actress detail scrape failed'
+      }
+
+      // Second chance: default page-only detail (no sort/filter chips). MissAV
+      // CF-challenges bare actress URLs; scrape_detail always sends ?page=1.
+      // Avoids "actress not found" after a chip change when the chip URL 403s.
+      if (!items.length && (filters || (sort && sort !== DEFAULT_SORT.actress))) {
+        try {
+          const plain = await pyScrapeActressDetail(slug, page, locale, {
+            sort: '',
+            filter: '',
+          })
+          if (plain?.ok) {
+            if (plain.actress) {
+              const next = plain.actress
+              actress = {
+                ...actress,
+                ...next,
+                avatarUrl: next.avatarUrl || actress.avatarUrl || '',
+                actressId: next.actressId || actress.actressId || '',
+                name:
+                  (next.name && next.name !== slug ? next.name : null) ||
+                  (actress.name && actress.name !== slug ? actress.name : null) ||
+                  next.name ||
+                  actress.name ||
+                  slug,
+                stats: next.stats || actress.stats || null,
+                birthday: next.birthday || actress.birthday || null,
+                age: next.age != null ? next.age : actress.age,
+                videoCount:
+                  next.videoCount != null ? next.videoCount : actress.videoCount,
+              }
+            }
+            if (plain.items?.length) {
+              items = await mapScrapeItemsEnriched(plain.items, locale)
+              url = plain.url || url
+              source = 'scrape-detail-fallback'
+              if (typeof plain.hasMore === 'boolean') hasMore = plain.hasMore
+              if (Number(plain.maxPage) > 0) maxPage = Number(plain.maxPage)
+              lastErr = null
+            }
+          }
+        } catch {
+          /* keep lastErr from first attempt */
+        }
       }
 
       if (!items.length) {

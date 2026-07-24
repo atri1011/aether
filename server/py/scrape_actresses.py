@@ -445,6 +445,10 @@ def _looks_like_cf_challenge(html: str) -> bool:
 
     Some challenges return HTTP 200 with tens of KB of JS and no catalog chrome.
     Real actress / list pages always embed fourhoi CDN assets.
+
+    Notably: bare actress detail URLs (no query string) often return a ~70KB
+    obfuscated JS shell (no <title>, no missav chrome) while the same path with
+    ``?page=1`` / ``?sort=…`` / ``?filters=…`` returns the real page.
     """
     if not html:
         return True
@@ -464,8 +468,13 @@ def _looks_like_cf_challenge(html: str) -> bool:
     ):
         return True
     # Soft-block shell: long enough to pass size checks but no site chrome.
+    # The bare-path JS interstitial has no <title> and no "missav" text.
     if len(html) < 120_000 and "<title" not in low and "missav" not in low:
         return True
+    # Obfuscated challenge: big inline script blob, almost no real markup.
+    if len(html) < 100_000 and low.count("<script") >= 1 and low.count("<a ") < 3:
+        if "fourhoi" not in low and "thumbnail" not in low:
+            return True
     return False
 
 
@@ -772,22 +781,40 @@ def scrape_detail(
     if filt in {"-", ""}:
         filt = None
 
-    def with_query(base_urls: list[str], *, include_sort_filt: bool) -> list[str]:
+    def with_query(
+        base_urls: list[str],
+        *,
+        sort_v: str | None = None,
+        filt_v: str | None = None,
+    ) -> list[str]:
+        """Attach listing query params.
+
+        CRITICAL: MissAV serves a JS challenge for actress detail URLs that have
+        *zero* query string (HTTP 200, ~70KB obfuscated script, no fourhoi).
+        Any non-empty query (``page``, ``sort``, ``filters``) unlocks the real
+        HTML. Never emit bare paths here.
+        """
         query: dict[str, str] = {}
-        if include_sort_filt:
-            if sort:
-                query["sort"] = sort
-            # MissAV listing query is `filters=` (plural), same as /new /search /genres.
-            if filt:
-                query["filters"] = filt
+        if sort_v:
+            query["sort"] = sort_v
+        # MissAV listing query is `filters=` (plural), same as /new /search /genres.
+        if filt_v:
+            query["filters"] = filt_v
         if page > 1:
             query["page"] = str(page)
+        # Always keep at least one query key so CF does not serve the bare-path shell.
         if not query:
-            return list(base_urls)
+            query["page"] = "1"
         qstr = "?" + urlencode(query)
         return [u + qstr for u in base_urls]
 
     base_urls = _detail_path_urls(slug, locale)
+    # Prefer stable encoded /cn (or /en) paths — skip raw CJK + ephemeral dm* first wave.
+    primary = [u for u in base_urls if "%" in u and "/dm" not in u][:6]
+    if not primary:
+        primary = base_urls[:6]
+    # Secondary: remaining encoded, then raw (still with query via with_query).
+    secondary = [u for u in base_urls if u not in primary][:8]
     has_extra_query = bool(sort or filt)
 
     def parse(html: str):
@@ -846,34 +873,42 @@ def scrape_detail(
             "mode": "detail",
         }
 
-    # Strategy:
-    # 1) Requested sort/filters (when present) — matches UI chips for most actresses.
-    #    Cap the sorted URL matrix: CF often 403s every `?sort=` candidate for some
-    #    actresses (e.g. 河北彩花); burning the full matrix × retries can exceed the
-    #    Node 50s spawn timeout before we ever try the bare path.
-    # 2) Bare path (+ page only) — prefer content over exact sort rather than
-    #    "actress not found".
+    # Strategy (wall-clock budget must stay under Node's ~50s spawn timeout):
+    # 1) Requested sort/filters on a small primary URL set.
+    # 2) Fallback: same paths with only ``?page=N`` (or ``?page=1``) — NOT a bare
+    #    path. Bare actress URLs are CF-challenged; page-only query unlocks HTML.
+    #    Prefer content over exact chip match rather than "actress not found".
+    # 3) Default listing (no extra sort/filter) uses page-only from the start.
     result: dict
     sort_fallback = False
     if has_extra_query:
-        # Prefer localized + encoded first; ~8 is enough to hit a live mirror when
-        # sort is allowed (三上悠亚 etc.) without stalling blocked actresses.
-        sorted_urls = with_query(base_urls[:8], include_sort_filt=True)
-        result = fetch_first_ok(sorted_urls, parse, retries=1)
-        if not result.get("ok"):
-            bare = fetch_first_ok(
-                with_query(base_urls, include_sort_filt=False),
+        result = fetch_first_ok(
+            with_query(primary, sort_v=sort, filt_v=filt),
+            parse,
+            retries=1,
+        )
+        if not result.get("ok") and secondary:
+            # One more short wave for alternate hosts/encodings with the same chips.
+            result = fetch_first_ok(
+                with_query(secondary[:4], sort_v=sort, filt_v=filt),
                 parse,
-                retries=2,
+                retries=1,
             )
-            if bare.get("ok"):
-                result = bare
+        if not result.get("ok"):
+            # Page-only fallback (always has a query string — never truly bare).
+            page_only = fetch_first_ok(
+                with_query(primary + secondary[:4], sort_v=None, filt_v=None),
+                parse,
+                retries=1,
+            )
+            if page_only.get("ok"):
+                result = page_only
                 sort_fallback = True
     else:
         result = fetch_first_ok(
-            with_query(base_urls, include_sort_filt=False),
+            with_query(primary + secondary[:4], sort_v=None, filt_v=None),
             parse,
-            retries=2,
+            retries=1,
         )
 
     if result.get("ok"):

@@ -262,14 +262,25 @@ def base_id(raw: str) -> str:
     return s
 
 
-def build_query(page: int, filters: str | None = None, sort: str | None = None) -> dict:
+def build_query(
+    page: int,
+    filters: str | None = None,
+    sort: str | None = None,
+    *,
+    force_page: bool = False,
+) -> dict:
+    """Build MissAV list query string.
+
+    ``force_page``: always emit ``page=`` even on page 1. Required for actress
+    detail paths — zero-query URLs get a JS challenge interstitial.
+    """
     qs: dict = {}
     if filters:
         qs["filters"] = filters
     if sort:
         qs["sort"] = sort
-    if page > 1:
-        qs["page"] = str(page)
+    if page > 1 or force_page:
+        qs["page"] = str(max(1, int(page or 1)))
     return qs
 
 
@@ -290,7 +301,10 @@ def candidate_urls(
     """Build listing URLs; put last-good hosts/patterns first (cold miss ~4s not ~25s)."""
     path = encode_path(path)
     loc = site_locale(locale)
-    qs = build_query(page, filters, sort)
+    # Actress detail pages challenge bare (zero-query) URLs; always keep a
+    # query key when scraping /actresses/{name} style paths.
+    force_page = path.startswith("actresses/") and "/" in path.strip("/")
+    qs = build_query(page, filters, sort, force_page=force_page)
     qstr = ("?" + urlencode(qs)) if qs else ""
 
     # Prefer previously successful hosts, then defaults.
