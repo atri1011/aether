@@ -63,6 +63,14 @@ DEFAULT_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
+# CF fingerprint rotation. chrome131 is currently challenged on /actresses*
+# ("Just a moment…"); chrome124 / Safari still pass. Order = try first.
+IMPERSONATE_CANDIDATES = (
+    "chrome124",
+    "safari17_0",
+    "chrome131",
+)
+
 
 def candidate_urls(path: str, page: int, locale: str, query: dict | None = None) -> list[str]:
     """Build missav actress listing URLs (cn for zh, en for en).
@@ -462,12 +470,16 @@ def _looks_like_cf_challenge(html: str) -> bool:
 
 
 def _http_get(url: str, *, retries: int = 1):
-    """GET with browser impersonation + same-host Referer; short retries on CF 403."""
+    """GET with browser impersonation + same-host Referer; short retries on CF 403.
+
+    Rotates TLS/JA3 fingerprints (IMPERSONATE_CANDIDATES) on challenge / 403 —
+    a single pinned profile (e.g. chrome131) can be soft-blocked while others pass.
+    """
     import time
     from urllib.parse import urlparse
 
     last_err = "request failed"
-    attempts = max(1, int(retries or 1))
+    rounds = max(1, int(retries or 1))
     parsed_u = urlparse(url)
     host_origin = (
         f"{parsed_u.scheme}://{parsed_u.netloc}"
@@ -486,34 +498,34 @@ def _http_get(url: str, *, retries: int = 1):
     else:
         referer = f"{host_origin}/"
     headers = {**DEFAULT_HEADERS, "Referer": referer}
+    profiles = list(IMPERSONATE_CANDIDATES) or ["chrome124"]
 
-    for i in range(attempts):
-        try:
-            r = requests.get(
-                url,
-                impersonate="chrome131",
-                timeout=30,
-                allow_redirects=True,
-                headers=headers,
-            )
-        except Exception as e:
-            last_err = str(e)
-            if i + 1 < attempts:
-                time.sleep(0.6 + i * 0.5)
+    for round_i in range(rounds):
+        for impersonate in profiles:
+            try:
+                r = requests.get(
+                    url,
+                    impersonate=impersonate,
+                    timeout=30,
+                    allow_redirects=True,
+                    headers=headers,
+                )
+            except Exception as e:
+                last_err = str(e)
                 continue
-            return None, last_err
-        if r.status_code == 200 and r.text and len(r.text) > 5000:
-            if _looks_like_cf_challenge(r.text):
-                last_err = "status 403"
-                if i + 1 < attempts:
-                    time.sleep(0.8 + i * 0.7)
+            if r.status_code == 200 and r.text and len(r.text) > 5000:
+                if _looks_like_cf_challenge(r.text):
+                    last_err = "status 403"
                     continue
+                return r, None
+            last_err = f"status {r.status_code}"
+            # Soft CF-ish statuses: try next JA3. Hard errors (404 etc.) won't improve.
+            if r.status_code not in {403, 503, 429, 520, 521, 522, 523, 524}:
                 break
-            return r, None
-        last_err = f"status {r.status_code}"
-        # CF challenge pages are tiny; brief backoff then retry same URL
-        if r.status_code in {403, 503, 429} and i + 1 < attempts:
-            time.sleep(0.8 + i * 0.7)
+        else:
+            # completed all profiles without break → soft-blocked; maybe retry round
+            if round_i + 1 < rounds:
+                time.sleep(0.7 + round_i * 0.5)
             continue
         break
     return None, last_err
@@ -567,10 +579,9 @@ def scrape_list(
     import time
 
     query = {}
-    # MissAV default sort is videos — only send non-default / explicit sorts,
-    # and always send profile filters. Sending bare sort=videos is fine too,
-    # but extra query heat is avoided when only paging the default list.
-    if sort and sort not in {"", "-"}:
+    # MissAV default sort is videos — omit it from the query string to keep the
+    # URL bare (less CF heat). Explicit non-default sorts (e.g. debut) still send.
+    if sort and sort not in {"", "-", "videos"}:
         query["sort"] = sort
     if height:
         query["height"] = height

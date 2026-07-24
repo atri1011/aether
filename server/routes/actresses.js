@@ -113,8 +113,8 @@ router.get('/api/actresses', async (req, res) => {
   const cup = qStr(req.query.cup)
   const age = qStr(req.query.age)
   const debut = qStr(req.query.debut)
-  // v2: more resilient CF/path fallbacks for profile filters (height/cup/age/debut)
-  const key = `actresses:list:v2:${locale}:${page}:${sort}:${height}:${cup}:${age}:${debut}`
+  // v3: CF fingerprint rotation (chrome124) — v2 burned on chrome131 soft-blocks
+  const key = `actresses:list:v3:${locale}:${page}:${sort}:${height}:${cup}:${age}:${debut}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       const scraped = await pyScrapeActressesList({

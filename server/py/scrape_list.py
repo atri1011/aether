@@ -530,11 +530,13 @@ def scrape(
     }
 
     # Cloudflare often challenges bare GETs; same-site Referer unlocks search/list.
+    # chrome131 is currently challenged on some MissAV paths; chrome124 still passes.
     _headers = {
         "Referer": "https://missav.ws/",
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
+    _impersonate_profiles = ("chrome124", "safari17_0", "chrome131")
     # Session only for sequential first hop (thread-safe); races use plain get.
     session = requests.Session()
     urls = candidate_urls(path, page, locale, filters=filters, sort=sort)
@@ -543,65 +545,58 @@ def scrape(
 
     def try_one(url: str, timeout: float = 10, use_session: bool = False) -> dict:
         client = session if use_session else requests
-        try:
-            r = client.get(
-                url,
-                impersonate="chrome131",
-                timeout=timeout,
-                allow_redirects=True,
-                headers=_headers,
-            )
-        except Exception as e:
-            return {
-                "ok": False,
-                "error": str(e),
-                "url": url,
-                "requestUrl": url,
-                "path": path,
-                "page": page,
-                "locale": locale,
-                "filters": filters,
-                "sort": sort,
-            }
+        last_err = "request failed"
+        last_url = url
+        for impersonate in _impersonate_profiles:
+            try:
+                r = client.get(
+                    url,
+                    impersonate=impersonate,
+                    timeout=timeout,
+                    allow_redirects=True,
+                    headers=_headers,
+                )
+            except Exception as e:
+                last_err = str(e)
+                continue
 
-        if r.status_code != 200:
+            last_url = str(r.url)
+            if r.status_code != 200:
+                last_err = f"status {r.status_code}"
+                # Soft CF blocks — try next fingerprint; hard errors keep last_err
+                if r.status_code in {403, 503, 429, 520, 521, 522, 523, 524}:
+                    continue
+                break
+
+            items = parse_items(r.text, filters=filters)
+            if not items:
+                last_err = "no items parsed"
+                # Empty/challenge body — try next JA3 before giving up this URL
+                continue
+
             return {
-                "ok": False,
-                "error": f"status {r.status_code}",
+                "ok": True,
                 "url": str(r.url),
                 "requestUrl": url,
                 "path": path,
                 "page": page,
                 "locale": locale,
-                "filters": filters,
-                "sort": sort,
-            }
-
-        items = parse_items(r.text, filters=filters)
-        if not items:
-            return {
-                "ok": False,
-                "error": "no items parsed",
-                "url": str(r.url),
-                "requestUrl": url,
-                "path": path,
-                "page": page,
-                "locale": locale,
-                "filters": filters,
-                "sort": sort,
+                "filters": filters or "",
+                "sort": sort or "",
+                "items": items,
+                "count": len(items),
             }
 
         return {
-            "ok": True,
-            "url": str(r.url),
+            "ok": False,
+            "error": last_err,
+            "url": last_url,
             "requestUrl": url,
             "path": path,
             "page": page,
             "locale": locale,
-            "filters": filters or "",
-            "sort": sort or "",
-            "items": items,
-            "count": len(items),
+            "filters": filters,
+            "sort": sort,
         }
 
     def race(batch: list[str], timeout: float) -> dict | None:
