@@ -1,4 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ChangeEvent,
+  type MouseEvent,
+  type PointerEvent,
+  type TouchEvent,
+} from 'react'
 import Hls from 'hls.js'
 
 type Props = {
@@ -9,6 +20,10 @@ type Props = {
   labels: {
     theatre: string
     exitTheatre: string
+    play: string
+    pause: string
+    fullscreen: string
+    exitFullscreen: string
     quality: string
     qualityAuto: string
     seekBack10s: string
@@ -31,9 +46,13 @@ const SEEK_STEPS = [
   { delta: 600, key: 'seekFwd10m' as const, short: '+10m' },
 ]
 
-/** Hold video surface this long before 2× (avoids fighting tap / native controls). */
+/** Hold video surface this long before 2× (avoids fighting tap / controls). */
 const SPEED_BOOST_HOLD_MS = 320
 const SPEED_BOOST_RATE = 2
+/** Finger/mouse drift beyond this cancels a pending hold (scroll / scrub intent). */
+const SPEED_BOOST_MOVE_CANCEL_PX = 14
+/** Auto-hide custom controls while playing (native-like). */
+const CONTROLS_HIDE_MS = 2800
 
 type LevelOption = {
   index: number
@@ -123,6 +142,45 @@ function resolvePreferredLevel(levels: LevelOption[], pref: number): number {
   return -1
 }
 
+function formatTime(sec: number) {
+  if (!Number.isFinite(sec) || sec < 0) return '0:00'
+  const total = Math.floor(sec)
+  const s = total % 60
+  const m = Math.floor(total / 60) % 60
+  const h = Math.floor(total / 3600)
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function getFullscreenElement(): Element | null {
+  const doc = document as Document & { webkitFullscreenElement?: Element | null }
+  return document.fullscreenElement ?? doc.webkitFullscreenElement ?? null
+}
+
+async function requestFs(el: HTMLElement) {
+  const anyEl = el as HTMLElement & {
+    requestFullscreen?: () => Promise<void>
+    webkitRequestFullscreen?: () => void
+  }
+  if (anyEl.requestFullscreen) {
+    await anyEl.requestFullscreen()
+    return
+  }
+  anyEl.webkitRequestFullscreen?.()
+}
+
+async function exitFs() {
+  const doc = document as Document & {
+    exitFullscreen?: () => Promise<void>
+    webkitExitFullscreen?: () => void
+  }
+  if (doc.exitFullscreen) {
+    await doc.exitFullscreen()
+    return
+  }
+  doc.webkitExitFullscreen?.()
+}
+
 export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
@@ -131,13 +189,22 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
   // -1 = Auto ABR; otherwise hls level index
   const [selectedLevel, setSelectedLevel] = useState<number>(-1)
   const [activeHeight, setActiveHeight] = useState<number>(0)
+  const [paused, setPaused] = useState(true)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [controlsVisible, setControlsVisible] = useState(true)
   // height preference persisted across videos (or -1 auto)
   const prefRef = useRef<number>(readQualityPref())
-  // Long-press 2×: timer + rate restore (refs avoid stale listeners)
+  const videoWrapRef = useRef<HTMLDivElement>(null)
+  const holdSurfaceRef = useRef<HTMLDivElement>(null)
   const holdTimerRef = useRef<number | null>(null)
+  const holdOriginRef = useRef<{ x: number; y: number } | null>(null)
   const boostPointerIdRef = useRef<number | null>(null)
   const boostingRef = useRef(false)
   const baseRateRef = useRef(1)
+  const scrubbingRef = useRef(false)
+  const hideControlsTimerRef = useRef<number | null>(null)
   const [boosting, setBoosting] = useState(false)
 
   const applyLevel = useCallback((hls: Hls, levelIndex: number) => {
@@ -155,14 +222,146 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
     if (!video || !src) return
     const now = video.currentTime
     if (!Number.isFinite(now)) return
-    const duration = Number.isFinite(video.duration) ? video.duration : Number.POSITIVE_INFINITY
-    const next = Math.min(Math.max(0, now + deltaSec), duration)
+    const dur = Number.isFinite(video.duration) ? video.duration : Number.POSITIVE_INFINITY
+    const next = Math.min(Math.max(0, now + deltaSec), dur)
     try {
       video.currentTime = next
+      setCurrentTime(next)
     } catch {
       // ignore NotSupportedError while media is still opening
     }
   }, [src])
+
+  const seekForward10 = useCallback(() => {
+    seekBy(10)
+  }, [seekBy])
+
+  const togglePlayPause = useCallback(() => {
+    const video = videoRef.current
+    if (!video || !src) return
+    if (video.paused) {
+      void video.play().catch(() => {
+        // autoplay policy / not ready
+      })
+    } else {
+      video.pause()
+    }
+  }, [src])
+
+  const clearHideControlsTimer = useCallback(() => {
+    if (hideControlsTimerRef.current != null) {
+      window.clearTimeout(hideControlsTimerRef.current)
+      hideControlsTimerRef.current = null
+    }
+  }, [])
+
+  const scheduleHideControls = useCallback(() => {
+    clearHideControlsTimer()
+    const video = videoRef.current
+    if (!video || video.paused) return
+    hideControlsTimerRef.current = window.setTimeout(() => {
+      hideControlsTimerRef.current = null
+      if (!scrubbingRef.current && videoRef.current && !videoRef.current.paused) {
+        setControlsVisible(false)
+      }
+    }, CONTROLS_HIDE_MS)
+  }, [clearHideControlsTimer])
+
+  const revealControls = useCallback(() => {
+    setControlsVisible(true)
+    scheduleHideControls()
+  }, [scheduleHideControls])
+
+  const toggleFullscreen = useCallback(async () => {
+    const wrap = videoWrapRef.current
+    const video = videoRef.current
+    if (!wrap) return
+
+    try {
+      const fsEl = getFullscreenElement()
+      if (fsEl === wrap || fsEl === video) {
+        await exitFs()
+        return
+      }
+      // Prefer container fullscreen so custom chrome (play / +10s / scrub) stays visible.
+      await requestFs(wrap)
+    } catch {
+      // iOS often only allows video.webkitEnterFullscreen — no custom chrome there.
+      const v = video as HTMLVideoElement & { webkitEnterFullscreen?: () => void }
+      try {
+        v?.webkitEnterFullscreen?.()
+      } catch {
+        // ignore
+      }
+    }
+  }, [])
+
+  // Sync playhead / pause / duration from the media element
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const onPlay = () => {
+      setPaused(false)
+      scheduleHideControls()
+    }
+    const onPause = () => {
+      setPaused(true)
+      setControlsVisible(true)
+      clearHideControlsTimer()
+    }
+    const onTime = () => {
+      if (!scrubbingRef.current) setCurrentTime(video.currentTime || 0)
+    }
+    const onMeta = () => {
+      if (Number.isFinite(video.duration)) setDuration(video.duration)
+    }
+    const onEnded = () => {
+      setPaused(true)
+      setControlsVisible(true)
+      clearHideControlsTimer()
+    }
+
+    setPaused(video.paused)
+    setCurrentTime(video.currentTime || 0)
+    if (Number.isFinite(video.duration)) setDuration(video.duration)
+
+    video.addEventListener('play', onPlay)
+    video.addEventListener('playing', onPlay)
+    video.addEventListener('pause', onPause)
+    video.addEventListener('timeupdate', onTime)
+    video.addEventListener('loadedmetadata', onMeta)
+    video.addEventListener('durationchange', onMeta)
+    video.addEventListener('ended', onEnded)
+    return () => {
+      video.removeEventListener('play', onPlay)
+      video.removeEventListener('playing', onPlay)
+      video.removeEventListener('pause', onPause)
+      video.removeEventListener('timeupdate', onTime)
+      video.removeEventListener('loadedmetadata', onMeta)
+      video.removeEventListener('durationchange', onMeta)
+      video.removeEventListener('ended', onEnded)
+    }
+  }, [src, scheduleHideControls, clearHideControlsTimer])
+
+  // Track container / document fullscreen
+  useEffect(() => {
+    const syncFs = () => {
+      const fsEl = getFullscreenElement()
+      const wrap = videoWrapRef.current
+      const video = videoRef.current
+      setIsFullscreen(fsEl != null && (fsEl === wrap || fsEl === video))
+    }
+    syncFs()
+    document.addEventListener('fullscreenchange', syncFs)
+    document.addEventListener('webkitfullscreenchange', syncFs as EventListener)
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFs)
+      document.removeEventListener('webkitfullscreenchange', syncFs as EventListener)
+    }
+  }, [src])
+
+  useEffect(() => () => clearHideControlsTimer(), [clearHideControlsTimer])
 
   const clearHoldTimer = useCallback(() => {
     if (holdTimerRef.current != null) {
@@ -173,16 +372,18 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
 
   const endSpeedBoost = useCallback(() => {
     clearHoldTimer()
-    const video = videoRef.current
+    holdOriginRef.current = null
+    const surface = holdSurfaceRef.current
     const pointerId = boostPointerIdRef.current
-    if (video && pointerId != null) {
+    if (surface && pointerId != null) {
       try {
-        if (video.hasPointerCapture?.(pointerId)) video.releasePointerCapture(pointerId)
+        if (surface.hasPointerCapture?.(pointerId)) surface.releasePointerCapture(pointerId)
       } catch {
         // ignore — capture may already be gone
       }
     }
     boostPointerIdRef.current = null
+    const video = videoRef.current
     if (boostingRef.current && video) {
       try {
         video.playbackRate = baseRateRef.current > 0 ? baseRateRef.current : 1
@@ -195,7 +396,7 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
   }, [clearHoldTimer])
 
   const beginSpeedBoost = useCallback(
-    (pointerId: number) => {
+    (pointerId: number, captureTarget: HTMLElement) => {
       const video = videoRef.current
       if (!video || !src || video.paused || boostingRef.current) return
       const prev = video.playbackRate
@@ -208,7 +409,7 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
       boostingRef.current = true
       boostPointerIdRef.current = pointerId
       try {
-        video.setPointerCapture(pointerId)
+        captureTarget.setPointerCapture(pointerId)
       } catch {
         // Safari / edge cases — still restore on pointerup bubble
       }
@@ -217,33 +418,97 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
     [src],
   )
 
-  const onVideoPointerDown = useCallback(
-    (e: React.PointerEvent<HTMLVideoElement>) => {
+  const onHoldPointerDown = useCallback(
+    (e: PointerEvent<HTMLDivElement>) => {
       if (!src) return
-      // primary contact only (left mouse / touch / pen)
+      if (!e.isPrimary) return
       if (e.pointerType === 'mouse' && e.button !== 0) return
       clearHoldTimer()
+      holdOriginRef.current = { x: e.clientX, y: e.clientY }
       const pointerId = e.pointerId
+      const target = e.currentTarget
       holdTimerRef.current = window.setTimeout(() => {
         holdTimerRef.current = null
-        beginSpeedBoost(pointerId)
+        beginSpeedBoost(pointerId, target)
       }, SPEED_BOOST_HOLD_MS)
     },
     [src, clearHoldTimer, beginSpeedBoost],
   )
 
-  const onVideoPointerEnd = useCallback(() => {
-    endSpeedBoost()
-  }, [endSpeedBoost])
-
-  const onVideoContextMenu = useCallback(
-    (e: React.MouseEvent<HTMLVideoElement>) => {
-      // suppress long-press context menu while boosting / holding
-      if (boostingRef.current || holdTimerRef.current != null) {
-        e.preventDefault()
+  const onHoldPointerMove = useCallback(
+    (e: PointerEvent<HTMLDivElement>) => {
+      if (boostingRef.current) return
+      if (holdTimerRef.current == null || !holdOriginRef.current) return
+      const dx = e.clientX - holdOriginRef.current.x
+      const dy = e.clientY - holdOriginRef.current.y
+      if (dx * dx + dy * dy > SPEED_BOOST_MOVE_CANCEL_PX * SPEED_BOOST_MOVE_CANCEL_PX) {
+        clearHoldTimer()
+        holdOriginRef.current = null
       }
     },
-    [],
+    [clearHoldTimer],
+  )
+
+  const onHoldPointerEnd = useCallback(
+    (e: PointerEvent<HTMLDivElement>) => {
+      if (!e.isPrimary) return
+      if (
+        boostPointerIdRef.current != null &&
+        e.pointerId !== boostPointerIdRef.current &&
+        holdTimerRef.current == null
+      ) {
+        return
+      }
+      const hadPendingHold = holdTimerRef.current != null
+      const wasBoosting = boostingRef.current
+      endSpeedBoost()
+      // Short tap on picture: toggle play (and reveal chrome)
+      if (e.type === 'pointerup' && hadPendingHold && !wasBoosting && src) {
+        revealControls()
+        const video = videoRef.current
+        if (!video) return
+        if (video.paused) {
+          void video.play().catch(() => {
+            // autoplay / not-yet-ready — ignore
+          })
+        } else {
+          video.pause()
+        }
+      }
+    },
+    [endSpeedBoost, src, revealControls],
+  )
+
+  const onHoldContextMenu = useCallback((e: MouseEvent<HTMLDivElement>) => {
+    e.preventDefault()
+  }, [])
+
+  const onScrubInput = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    const next = Number(e.target.value)
+    if (!Number.isFinite(next)) return
+    scrubbingRef.current = true
+    setCurrentTime(next)
+    setControlsVisible(true)
+    clearHideControlsTimer()
+  }, [clearHideControlsTimer])
+
+  const onScrubCommit = useCallback(
+    (e: PointerEvent<HTMLInputElement> | TouchEvent<HTMLInputElement>) => {
+      const raw = (e.target as HTMLInputElement).value
+      const next = Number(raw)
+      scrubbingRef.current = false
+      const video = videoRef.current
+      if (video && Number.isFinite(next)) {
+        try {
+          video.currentTime = next
+        } catch {
+          // ignore
+        }
+        setCurrentTime(next)
+      }
+      scheduleHideControls()
+    },
+    [scheduleHideControls],
   )
 
   // Always restore rate if stream unmounts mid-boost
@@ -279,6 +544,8 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
     setError(null)
     setLevels([])
     setActiveHeight(0)
+    setCurrentTime(0)
+    setDuration(0)
     // stay on Auto until MANIFEST_PARSED maps height pref → level index
     setSelectedLevel(-1)
 
@@ -370,6 +637,8 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
   }, [selectedLevel, activeHeight, levels, labels.qualityAuto, labels.quality])
 
   const showQuality = levels.length > 1
+  const progressMax = duration > 0 ? duration : 0
+  const progressValue = Math.min(currentTime, progressMax || currentTime)
 
   // Lock body scroll while theatre mode is open (mobile URL bar / overscroll)
   useEffect(() => {
@@ -379,37 +648,155 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
     return () => root.classList.remove('drawer-scroll-lock')
   }, [theatre])
 
-  // Escape exits theatre (same chrome pattern as drawer)
+  // Escape exits theatre (same chrome pattern as drawer) — not when browser FS owns Esc
   useEffect(() => {
     if (!theatre) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onToggleTheatre()
+      if (e.key === 'Escape' && !getFullscreenElement()) onToggleTheatre()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [theatre, onToggleTheatre])
 
+  const progressPct =
+    progressMax > 0 ? Math.min(100, Math.max(0, (progressValue / progressMax) * 100)) : 0
+
   return (
     <div className={`player-shell${theatre ? ' theatre' : ''}${boosting ? ' is-boosting' : ''}`}>
-      <div className="player-video-wrap">
+      <div
+        className={`player-video-wrap${controlsVisible ? ' controls-visible' : ' controls-hidden'}${
+          isFullscreen ? ' is-fullscreen' : ''
+        }`}
+        ref={videoWrapRef}
+        onMouseMove={revealControls}
+      >
         <video
           ref={videoRef}
           poster={poster}
-          controls
           playsInline
+          // Custom chrome replaces native controls so we can put +10s beside play.
           // @ts-expect-error referrerPolicy is valid on HTMLVideoElement in browsers
           referrerPolicy="no-referrer"
-          onPointerDown={onVideoPointerDown}
-          onPointerUp={onVideoPointerEnd}
-          onPointerCancel={onVideoPointerEnd}
-          onLostPointerCapture={onVideoPointerEnd}
-          onContextMenu={onVideoContextMenu}
+        />
+        {/*
+          Transparent hold target above the picture (bottom strip left for control bar).
+          Mobile long-press on bare <video> would otherwise open callout / cancel 2×.
+        */}
+        <div
+          ref={holdSurfaceRef}
+          className="player-hold-surface"
+          aria-hidden
+          onPointerDown={onHoldPointerDown}
+          onPointerMove={onHoldPointerMove}
+          onPointerUp={onHoldPointerEnd}
+          onPointerCancel={onHoldPointerEnd}
+          onLostPointerCapture={onHoldPointerEnd}
+          onContextMenu={onHoldContextMenu}
         />
         {boosting && (
           <div className="player-speed-badge" aria-live="polite">
             {labels.speedBoost}
           </div>
         )}
+        {/*
+          Single integrated control bar (native-style):
+          [play/pause] [+10s] ···· progress ···· time ···· [fullscreen]
+          Browsers cannot inject into <video controls> shadow DOM; this is the
+          only way to place skip immediately right of play inside the chrome.
+        */}
+        <div
+          className="player-controls"
+          onMouseMove={(e) => {
+            e.stopPropagation()
+            revealControls()
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="player-controls-progress">
+            <input
+              type="range"
+              className="player-controls-range"
+              min={0}
+              max={progressMax || 0}
+              step={0.01}
+              value={progressValue || 0}
+              disabled={!src || progressMax <= 0}
+              aria-label="Seek"
+              style={{ '--progress': `${progressPct}%` } as CSSProperties}
+              onChange={onScrubInput}
+              onPointerUp={onScrubCommit}
+              onTouchEnd={onScrubCommit}
+            />
+          </div>
+          <div className="player-controls-row">
+            <div className="player-controls-left">
+              <button
+                type="button"
+                className="player-ctrl-btn"
+                disabled={!src}
+                title={paused ? labels.play : labels.pause}
+                aria-label={paused ? labels.play : labels.pause}
+                onClick={togglePlayPause}
+              >
+                <span className="player-ctrl-icon" aria-hidden>
+                  {paused ? (
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                      <path d="M6 5h4v14H6zm8 0h4v14h-4z" />
+                    </svg>
+                  )}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="player-ctrl-btn player-ctrl-skip"
+                disabled={!src}
+                title={labels.seekFwd10s}
+                aria-label={labels.seekFwd10s}
+                onClick={seekForward10}
+              >
+                <span className="player-ctrl-icon player-ctrl-skip-icon" aria-hidden>
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                    <path d="M4 5v14l8-7-8-7zm9 0v14l8-7-8-7z" />
+                  </svg>
+                  <span className="player-ctrl-skip-num">10</span>
+                </span>
+              </button>
+              <span className="player-controls-time" aria-live="off">
+                {formatTime(currentTime)}
+                <span className="player-controls-time-sep"> / </span>
+                {formatTime(duration)}
+              </span>
+            </div>
+            <div className="player-controls-right">
+              <button
+                type="button"
+                className="player-ctrl-btn"
+                disabled={!src}
+                title={isFullscreen ? labels.exitFullscreen : labels.fullscreen}
+                aria-label={isFullscreen ? labels.exitFullscreen : labels.fullscreen}
+                onClick={() => {
+                  void toggleFullscreen()
+                }}
+              >
+                <span className="player-ctrl-icon" aria-hidden>
+                  {isFullscreen ? (
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                      <path d="M7 14H5v5h5v-2H7v-3zm12 0h-2v3h-3v2h5v-5zM7 5h3V3H5v5h2V5zm10 0v2h3v3h2V3h-5z" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                      <path d="M7 14H5v5h5v-2H7v-3zm0-9h3V3H5v5h2V5zm12 9h-2v3h-3v2h5v-5zM14 3v2h3v3h2V3h-5z" />
+                    </svg>
+                  )}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
       <div className="player-bar">
         <button type="button" className="btn" onClick={onToggleTheatre}>

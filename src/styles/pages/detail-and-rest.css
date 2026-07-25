@@ -53,10 +53,11 @@
   max-height: min(70vh, 70dvh);
   background: #05060a;
   display: block;
-  /* Allow long-press 2×; still avoid double-tap zoom */
+  /* Hold surface owns long-press; keep video non-selectable */
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .player-shell.theatre .player-video-wrap {
@@ -71,6 +72,29 @@
   aspect-ratio: auto;
   height: 100%;
   max-height: none;
+}
+
+/*
+  Long-press 2× hit target. Leaves bottom strip for the custom control bar.
+*/
+.player-hold-surface {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 4.75rem;
+  z-index: 1;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  background: transparent;
+}
+
+.player-shell.theatre .player-hold-surface,
+.player-video-wrap:fullscreen .player-hold-surface,
+.player-video-wrap:-webkit-full-screen .player-hold-surface {
+  bottom: max(5.25rem, calc(4.75rem + var(--safe-bottom, 0px)));
 }
 
 /* Long-press 2× badge (YouTube / MissAV style) */
@@ -96,13 +120,291 @@
   animation: aether-fade var(--dur-2) ease both;
 }
 
-.player-shell.is-boosting video {
+.player-shell.is-boosting .player-hold-surface {
   cursor: progress;
+  touch-action: none;
+}
+
+/*
+  Custom media chrome (replaces <video controls>).
+  Layout mirrors native bars: progress on top, then
+  [play] [+10s] time ………… fullscreen
+*/
+.player-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.35rem 0.45rem max(0.4rem, var(--safe-bottom, 0px));
+  background: linear-gradient(
+    180deg,
+    rgba(5, 6, 10, 0) 0%,
+    rgba(5, 6, 10, 0.55) 28%,
+    rgba(5, 6, 10, 0.88) 100%
+  );
+  transition: opacity var(--dur-2) ease, visibility var(--dur-2) ease;
+  pointer-events: auto;
+}
+
+.player-video-wrap.controls-hidden .player-controls {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.player-video-wrap.controls-visible .player-controls,
+.player-video-wrap.controls-hidden:hover .player-controls {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* Keep chrome visible while paused even if class races */
+.player-controls:focus-within {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.player-controls-progress {
+  padding: 0 0.2rem;
+}
+
+.player-controls-range {
+  --progress: 0%;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 1.1rem;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.player-controls-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.player-controls-range:focus-visible {
+  outline: none;
+}
+
+.player-controls-range::-webkit-slider-runnable-track {
+  height: 0.28rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--accent) 0%,
+    var(--accent) var(--progress),
+    rgba(255, 255, 255, 0.22) var(--progress),
+    rgba(255, 255, 255, 0.22) 100%
+  );
+}
+
+.player-controls-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0.85rem;
+  height: 0.85rem;
+  margin-top: -0.28rem;
+  border-radius: 50%;
+  border: 0;
+  background: #eef1f7;
+  box-shadow: 0 0 0 2px rgba(124, 140, 255, 0.35);
+}
+
+.player-controls-range::-moz-range-track {
+  height: 0.28rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.player-controls-range::-moz-range-progress {
+  height: 0.28rem;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.player-controls-range::-moz-range-thumb {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 0;
+  border-radius: 50%;
+  background: #eef1f7;
+  box-shadow: 0 0 0 2px rgba(124, 140, 255, 0.35);
+}
+
+.player-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  min-height: 2.5rem;
+}
+
+.player-controls-left,
+.player-controls-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.player-controls-left {
+  flex: 1 1 auto;
+}
+
+.player-ctrl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #eef1f7;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background var(--dur-2) ease, transform var(--dur-2) ease;
+}
+
+.player-ctrl-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.player-ctrl-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.player-ctrl-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.player-ctrl-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.player-ctrl-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+/* Skip sits immediately right of play — same control row, native-like */
+.player-ctrl-skip {
+  width: auto;
+  min-width: 2.5rem;
+  padding-inline: 0.35rem 0.45rem;
+  border-radius: var(--radius-pill);
+  gap: 0;
+}
+
+.player-ctrl-skip-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.player-ctrl-skip-num {
+  position: absolute;
+  right: -0.05rem;
+  bottom: -0.1rem;
+  font-family: var(--display);
+  font-size: 0.58rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1;
+  color: #eef1f7;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+}
+
+.player-controls-time {
+  margin-left: 0.35rem;
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+  color: rgba(238, 241, 247, 0.88);
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.player-controls-time-sep {
+  opacity: 0.55;
+}
+
+/* Container fullscreen keeps custom chrome (unlike bare <video> fullscreen) */
+.player-video-wrap:fullscreen,
+.player-video-wrap:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
+  background: #05060a;
+  display: flex;
+  flex-direction: column;
+}
+
+.player-video-wrap:fullscreen video,
+.player-video-wrap:-webkit-full-screen video {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  aspect-ratio: auto;
+  object-fit: contain;
+}
+
+.player-shell.theatre .player-controls,
+.player-video-wrap:fullscreen .player-controls,
+.player-video-wrap:-webkit-full-screen .player-controls {
+  padding-bottom: max(0.55rem, var(--safe-bottom, 0px));
+  padding-left: max(0.45rem, var(--safe-left, 0px));
+  padding-right: max(0.45rem, var(--safe-right, 0px));
+}
+
+@media (max-width: 560px) {
+  .player-ctrl-btn {
+    width: 2.65rem;
+    height: 2.65rem;
+  }
+
+  .player-controls-time {
+    font-size: 0.7rem;
+  }
+
+  .player-hold-surface {
+    bottom: 5.1rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .player-speed-badge {
     animation: none;
+  }
+
+  .player-controls {
+    transition: none;
+  }
+
+  .player-ctrl-btn {
+    transition: none;
+  }
+
+  .player-ctrl-btn:active:not(:disabled) {
+    transform: none;
   }
 }
 

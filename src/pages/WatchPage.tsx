@@ -156,6 +156,10 @@ export function WatchPage() {
             labels={{
               theatre: tr('theatre'),
               exitTheatre: tr('exitTheatre'),
+              play: tr('play'),
+              pause: tr('pause'),
+              fullscreen: tr('fullscreen'),
+              exitFullscreen: tr('exitFullscreen'),
               quality: tr('quality'),
               qualityAuto: tr('qualityAuto'),
               seekBack10s: tr('seekBack10s'),
