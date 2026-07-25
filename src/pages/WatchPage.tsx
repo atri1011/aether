@@ -1,11 +1,54 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { api, formatDate, formatDuration, isAbortError } from '../lib/api'
 import type { VideoDetail } from '../types'
 import { useLocale } from '../context'
 import { Player } from '../components/Player'
 import { VideoGrid } from '../components/VideoGrid'
 import { WatchSkeleton } from '../components/Skeleton'
+
+/** Single path segment for Link `to` — raw CJK like ActressCard; encode only if `/?#` would split the route. */
+function pathSegment(name: string) {
+  const n = String(name || '').trim()
+  if (!n) return ''
+  if (/[/?#]/.test(n)) return encodeURIComponent(n)
+  return n
+}
+
+function actressPath(name: string) {
+  const seg = pathSegment(name)
+  return seg ? `/actress/${seg}` : '/actresses'
+}
+
+function makerPath(name: string) {
+  const seg = pathSegment(name)
+  return seg ? `/c/makers/${seg}` : '/makers'
+}
+
+function DetailMetaLinks({
+  items,
+  to,
+  sep,
+}: {
+  items?: string[]
+  to: (name: string) => string
+  sep: string
+}) {
+  const list = (items || []).map((s) => String(s || '').trim()).filter(Boolean)
+  if (!list.length) return '—'
+  return (
+    <>
+      {list.map((name, i) => (
+        <span key={`${name}-${i}`}>
+          {i > 0 ? sep : null}
+          <Link className="detail-meta-link" to={to(name)}>
+            {name}
+          </Link>
+        </span>
+      ))}
+    </>
+  )
+}
 
 function toMasterUrl(input: string) {
   const v = input.trim()
@@ -182,7 +225,9 @@ export function WatchPage() {
             </div>
             <div>
               <dt>{tr('actresses')}</dt>
-              <dd>{video.actresses?.join(' / ') || '—'}</dd>
+              <dd>
+                <DetailMetaLinks items={video.actresses} to={actressPath} sep=" / " />
+              </dd>
             </div>
             <div>
               <dt>{tr('genres')}</dt>
@@ -190,7 +235,9 @@ export function WatchPage() {
             </div>
             <div>
               <dt>{tr('labels')}</dt>
-              <dd>{video.labels?.join(' · ') || '—'}</dd>
+              <dd>
+                <DetailMetaLinks items={video.labels} to={makerPath} sep=" · " />
+              </dd>
             </div>
           </dl>
         </aside>
