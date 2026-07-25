@@ -260,6 +260,13 @@
   background-clip: text;
   color: transparent;
   flex-shrink: 0;
+  /* Enlarge hit area without shifting layout */
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-min);
+  padding-inline: 0.35rem;
+  margin-inline: -0.35rem;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .topbar-actions {

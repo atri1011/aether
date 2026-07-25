@@ -49,6 +49,8 @@
   /* Layout */
   --sidebar-w: 252px;
   --topbar-h: 56px;
+  /* Live height from Topbar ResizeObserver (includes search panel + safe-area) */
+  --topbar-live-h: var(--topbar-h);
   --max: 1400px;
   --radius-sm: 12px;
   --radius: 18px;
@@ -60,7 +62,8 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
-  --topbar-offset: calc(var(--topbar-h) + var(--safe-top));
+  /* Prefer measured topbar height so sticky filters clear open search */
+  --topbar-offset: var(--topbar-live-h);
 
   /* Motion */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);

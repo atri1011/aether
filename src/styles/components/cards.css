@@ -282,11 +282,11 @@
   color: var(--ink);
 }
 
-/* MissAV-style content tags: true bottom-right corner of cover */
+/* MissAV-style content tags — sit above title meta so mobile overlay doesn't collide */
 .card-badges {
   position: absolute;
   right: 0.4rem;
-  bottom: 0.4rem;
+  bottom: 3.55rem;
   z-index: 5;
   display: flex;
   flex-direction: row;
@@ -354,10 +354,11 @@
 
 .chip {
   border: 1px solid var(--glass-border);
-  padding: 0.5rem 0.9rem;
-  min-height: 2.25rem;
+  padding: 0.55rem 0.95rem;
+  min-height: var(--touch-min);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   font-size: 0.78rem;
   letter-spacing: 0.01em;
   color: var(--ink-dim);
@@ -365,12 +366,17 @@
   background: rgba(255, 255, 255, 0.03);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
   transition:
     border-color var(--dur-2) ease,
     color var(--dur-2) ease,
     background var(--dur-2) ease,
     transform var(--dur-2) var(--ease-out-expo),
     box-shadow var(--dur-2) ease;
+}
+
+.mode-chips {
+  margin-bottom: 1rem;
 }
 
 .chip:hover {

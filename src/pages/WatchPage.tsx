@@ -172,7 +172,7 @@ export function WatchPage() {
             }}
           />
           {!src && (
-            <p className="card-sub" style={{ marginTop: '0.75rem' }}>
+            <p className="card-sub stream-status">
               {streamResolving ? tr('loading') : tr('streamMissing')}
               {!streamResolving && video.streamError?.message
                 ? ` — ${video.streamError.message}`
@@ -181,38 +181,49 @@ export function WatchPage() {
               {tr('streamHint')}
             </p>
           )}
-          <div className="manual-stream">
-            <input
-              value={manual}
-              onChange={(e) => setManual(e.target.value)}
-              placeholder={tr('manualUuid')}
-            />
-            <button
-              type="button"
-              className="btn primary"
-              onClick={() => {
-                const url = toMasterUrl(manual)
-                if (url) setOverrideSrc(url)
-              }}
-            >
-              {tr('applyStream')}
-            </button>
-            <button
-              type="button"
-              className="btn"
-              disabled={streamResolving}
-              onClick={() => {
-                setStreamResolving(true)
-                api
-                  .resolveStream(id, locale)
-                  .then(setVideo)
-                  .catch((e: Error) => setError(e.message))
-                  .finally(() => setStreamResolving(false))
-              }}
-            >
-              {tr('resolveAgain')}
-            </button>
-          </div>
+          {/* Collapsed by default on mobile — power-user path, not primary chrome */}
+          <details className="manual-stream-details" open={!src ? true : undefined}>
+            <summary className="manual-stream-summary">
+              <span>{tr('advancedStream')}</span>
+              <span className="manual-stream-summary-hint">{tr('advancedStreamHint')}</span>
+            </summary>
+            <div className="manual-stream">
+              <input
+                value={manual}
+                onChange={(e) => setManual(e.target.value)}
+                placeholder={tr('manualUuid')}
+                enterKeyHint="go"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                className="btn primary"
+                onClick={() => {
+                  const url = toMasterUrl(manual)
+                  if (url) setOverrideSrc(url)
+                }}
+              >
+                {tr('applyStream')}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={streamResolving}
+                onClick={() => {
+                  setStreamResolving(true)
+                  api
+                    .resolveStream(id, locale)
+                    .then(setVideo)
+                    .catch((e: Error) => setError(e.message))
+                    .finally(() => setStreamResolving(false))
+                }}
+              >
+                {tr('resolveAgain')}
+              </button>
+            </div>
+          </details>
         </div>
 
         <aside className="detail-side">

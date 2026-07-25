@@ -42,6 +42,8 @@ export function ActressesPage() {
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Mobile: advanced filters start collapsed so the list is visible above the fold. */
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -132,9 +134,12 @@ export function ActressesPage() {
     setSearchParams(new URLSearchParams(), { replace: true })
   }
 
+  const advancedActiveCount = [filters.height, filters.cup, filters.age, filters.debut].filter(
+    Boolean,
+  ).length
   const hasActiveFilters =
     !isRanking &&
-    !!(filters.height || filters.cup || filters.age || filters.debut || (filters.sort && filters.sort !== 'videos'))
+    !!(advancedActiveCount || (filters.sort && filters.sort !== 'videos'))
 
   return (
     <>
@@ -144,7 +149,7 @@ export function ActressesPage() {
           <span className="card-sub">{items.length ? `${items.length}${isRanking ? '' : '+'}` : ''}</span>
         </div>
 
-        <div className="chips" style={{ marginBottom: '1rem' }}>
+        <div className="chips mode-chips">
           <Link to="/actresses" className={`chip${!isRanking ? ' active' : ''}`}>
             {tr('actressList')}
           </Link>
@@ -154,75 +159,89 @@ export function ActressesPage() {
         </div>
 
         {!isRanking && filterOptions && (
-          <div className="filter-bar">
-            <label className="filter-field">
-              <span>{tr('sortBy')}</span>
-              <select
-                value={filters.sort || 'videos'}
-                onChange={(e) => setFilter('sort', e.target.value)}
+          <div className={`filter-bar actress-filter-bar${filtersOpen ? ' is-expanded' : ''}`}>
+            <div className="filter-bar-primary">
+              <label className="filter-field filter-field-sort">
+                <span>{tr('sortBy')}</span>
+                <select
+                  value={filters.sort || 'videos'}
+                  onChange={(e) => setFilter('sort', e.target.value)}
+                >
+                  {(filterOptions.sort || []).map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className={`btn filter-toggle${filtersOpen || advancedActiveCount ? ' is-active' : ''}`}
+                aria-expanded={filtersOpen}
+                onClick={() => setFiltersOpen((v) => !v)}
               >
-                {(filterOptions.sort || []).map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="filter-field">
-              <span>{tr('filterHeight')}</span>
-              <select
-                value={filters.height || ''}
-                onChange={(e) => setFilter('height', e.target.value)}
-              >
-                <option value="">{tr('allOption')}</option>
-                {(filterOptions.height || []).map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="filter-field">
-              <span>{tr('filterCup')}</span>
-              <select value={filters.cup || ''} onChange={(e) => setFilter('cup', e.target.value)}>
-                <option value="">{tr('allOption')}</option>
-                {(filterOptions.cup || []).map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="filter-field">
-              <span>{tr('filterAge')}</span>
-              <select value={filters.age || ''} onChange={(e) => setFilter('age', e.target.value)}>
-                <option value="">{tr('allOption')}</option>
-                {(filterOptions.age || []).map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="filter-field">
-              <span>{tr('filterDebut')}</span>
-              <select
-                value={filters.debut || ''}
-                onChange={(e) => setFilter('debut', e.target.value)}
-              >
-                <option value="">{tr('allOption')}</option>
-                {(filterOptions.debut || []).map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {hasActiveFilters && (
-              <button type="button" className="btn" onClick={clearFilters}>
-                {tr('clearFilters')}
+                {filtersOpen ? tr('filtersLess') : tr('filtersMore')}
+                {advancedActiveCount > 0 ? ` · ${advancedActiveCount}` : ''}
               </button>
-            )}
+              {hasActiveFilters && (
+                <button type="button" className="btn" onClick={clearFilters}>
+                  {tr('clearFilters')}
+                </button>
+              )}
+            </div>
+            {/* Desktop always shows via CSS; mobile respects is-open */}
+            <div className={`filter-bar-extra${filtersOpen ? ' is-open' : ''}`}>
+              <label className="filter-field">
+                <span>{tr('filterHeight')}</span>
+                <select
+                  value={filters.height || ''}
+                  onChange={(e) => setFilter('height', e.target.value)}
+                >
+                  <option value="">{tr('allOption')}</option>
+                  {(filterOptions.height || []).map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="filter-field">
+                <span>{tr('filterCup')}</span>
+                <select value={filters.cup || ''} onChange={(e) => setFilter('cup', e.target.value)}>
+                  <option value="">{tr('allOption')}</option>
+                  {(filterOptions.cup || []).map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="filter-field">
+                <span>{tr('filterAge')}</span>
+                <select value={filters.age || ''} onChange={(e) => setFilter('age', e.target.value)}>
+                  <option value="">{tr('allOption')}</option>
+                  {(filterOptions.age || []).map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="filter-field">
+                <span>{tr('filterDebut')}</span>
+                <select
+                  value={filters.debut || ''}
+                  onChange={(e) => setFilter('debut', e.target.value)}
+                >
+                  <option value="">{tr('allOption')}</option>
+                  {(filterOptions.debut || []).map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
         )}
       </section>

@@ -21,11 +21,29 @@ export function Topbar({
   const navigate = useNavigate()
   const [q, setQ] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const topbarRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     if (!searchOpen) return
     const t = window.setTimeout(() => inputRef.current?.focus(), 40)
     return () => window.clearTimeout(t)
+  }, [searchOpen])
+
+  // Publish live topbar height so sticky filters clear open search / safe-area.
+  useEffect(() => {
+    const el = topbarRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const publish = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height)
+      document.documentElement.style.setProperty('--topbar-live-h', `${h}px`)
+    }
+    publish()
+    const ro = new ResizeObserver(publish)
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      document.documentElement.style.removeProperty('--topbar-live-h')
+    }
   }, [searchOpen])
 
   function onSearch(e: FormEvent) {
@@ -37,7 +55,7 @@ export function Topbar({
   }
 
   return (
-    <header className={`topbar${searchOpen ? ' search-open' : ''}`}>
+    <header ref={topbarRef} className={`topbar${searchOpen ? ' search-open' : ''}`}>
       <div className="topbar-row">
         <button
           type="button"

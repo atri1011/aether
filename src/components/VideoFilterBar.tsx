@@ -23,9 +23,9 @@ export function VideoFilterBar({ options, value, onChange, sortOnly, defaultSort
   return (
     <div className="filter-bar video-filter-bar">
       {!sortOnly && (
-        <div className="filter-field" style={{ minWidth: 'min(100%, 18rem)', flex: '1 1 16rem' }}>
+        <div className="filter-field filter-field-chips">
           <span>{tr('filterBy')}</span>
-          <div className="filter-chips">
+          <div className="filter-chips" role="group" aria-label={tr('filterBy')}>
             {(options.filters || []).map((o) => {
               const active = (o.value || '') === filters
               return (
@@ -42,7 +42,7 @@ export function VideoFilterBar({ options, value, onChange, sortOnly, defaultSort
           </div>
         </div>
       )}
-      <label className="filter-field">
+      <label className="filter-field filter-field-sort">
         <span>{tr('sortBy')}</span>
         <select value={sort} onChange={(e) => onChange({ ...value, sort: e.target.value })}>
           {(options.sorts || []).map((o) => (
@@ -55,7 +55,7 @@ export function VideoFilterBar({ options, value, onChange, sortOnly, defaultSort
       {dirty && (
         <button
           type="button"
-          className="btn"
+          className="btn filter-clear"
           onClick={() => onChange({ filters: '', sort: baseSort })}
         >
           {tr('clearFilters')}
