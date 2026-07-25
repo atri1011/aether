@@ -18,7 +18,8 @@ def main():
     url = sys.argv[1]
     r = requests.get(
         url,
-        impersonate="chrome131",
+        # Align with media_server / list scrapers (OPT-18)
+        impersonate="chrome124",
         timeout=45,
         headers={
             "Referer": "https://missav.ws/",

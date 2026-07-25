@@ -191,22 +191,28 @@ export function ActressDetailPage() {
         <VideoFilterBar options={filterOptions} value={query} onChange={setQuery} />
         {loading && !items.length && <VideoSkeletonGrid count={12} />}
         {error && !items.length && <div className="state error">{error}</div>}
-        {!(!loading && !error) ? null : (
+        {/* Keep existing cards visible while loading more / after a page-N error.
+            The old `!(!loading && !error)` gate hid the whole grid once loadMore
+            set `error`, so scrolling for page 2 made every video "disappear". */}
+        {items.length > 0 ? (
           <>
-            {items.length ? <VideoGrid items={items} /> : <div className="state">{tr('empty')}</div>}
+            <VideoGrid items={items} />
+            {error && <div className="state error">{error}</div>}
             <InfiniteSentinel
               onVisible={loadMore}
-              disabled={!hasMore}
+              disabled={!hasMore || loading}
               loading={loadingMore}
               label={tr('loadMore')}
               loadingLabel={tr('loadingMore')}
             />
-            {!hasMore && items.length > 0 && (
+            {!hasMore && !loading && (
               <div className="state" style={{ padding: '1.25rem' }}>
                 {tr('endOfList')}
               </div>
             )}
           </>
+        ) : (
+          !loading && !error && <div className="state">{tr('empty')}</div>
         )}
       </section>
     </>

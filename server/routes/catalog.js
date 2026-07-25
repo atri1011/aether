@@ -29,6 +29,7 @@ import {
   SCRAPE_PAGE_FULL,
 } from '../services/scrapeMap.js'
 import { recordCategoryHit } from '../services/warm.js'
+import { categoryListKey } from '../util/cacheKeys.js'
 import { localeOf } from '../util/locale.js'
 import { sendError } from '../util/sendError.js'
 
@@ -275,7 +276,14 @@ router.get(['/api/c/:slug', '/api/c/:kind/:name'], async (req, res) => {
   const sort = sanitizeVideoSort(req.query.sort, defaultSortForCategory(cat.slug))
   const count = recombeeCount(page, pageSize)
   // v13: studio scrape id accept + no recommendForUser for studio cats
-  const key = `cat:v13:${locale}:${cat.slug}:${page}:${pageSize}:${filters}:${sort}`
+  const key = categoryListKey({
+    locale,
+    slug: cat.slug,
+    page,
+    pageSize,
+    filters,
+    sort,
+  })
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       const category = {

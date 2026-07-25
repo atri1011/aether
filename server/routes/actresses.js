@@ -361,16 +361,23 @@ router.get('/api/actresses/:slug', async (req, res) => {
             actress.videoCount != null),
       )
       if (!items.length && !hasProfile && lastErr) {
-        const msg = String(lastErr)
-        const err = new Error(
-          msg === 'no items parsed' ||
-            /status 403|status 404|no candidate|challenge/i.test(msg)
-            ? `actress not found or blocked: ${slug}`
-            : msg,
-        )
-        err.code = /404|not found/i.test(msg) ? 'NOT_FOUND' : 'UPSTREAM'
-        err.details = lastErr
-        throw err
+        // Page 2+ often returns a bare profile shell (portrait only on page 1).
+        // A CF blip or empty tail page must end pagination, not 503 the detail
+        // API — that made infinite-scroll loadMore fail and the client hide
+        // every already-loaded card.
+        if (page <= 1) {
+          const msg = String(lastErr)
+          const err = new Error(
+            msg === 'no items parsed' ||
+              /status 403|status 404|no candidate|challenge/i.test(msg)
+              ? `actress not found or blocked: ${slug}`
+              : msg,
+          )
+          err.code = /404|not found/i.test(msg) ? 'NOT_FOUND' : 'UPSTREAM'
+          err.details = lastErr
+          throw err
+        }
+        hasMore = false
       }
 
       if (!items.length) hasMore = false

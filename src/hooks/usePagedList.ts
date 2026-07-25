@@ -95,6 +95,9 @@ export function usePagedList(loader: Loader, deps: unknown[]) {
           ? d.hasMore
           : batch.length >= Math.min(d.pageSize || 24, 12)
       setHasMore(more && batch.length > 0)
+      // Clear a prior page-N failure so a successful retry does not keep an
+      // error banner (or any page that keys off `error`) stuck on screen.
+      setError(null)
     } catch (e) {
       if (isAbortError(e)) return
       setError(e instanceof Error ? e.message : String(e))

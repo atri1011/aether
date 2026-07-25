@@ -12,6 +12,7 @@ import {
 } from '../videoFilters.js'
 import { findCategory, resolveCategory } from '../categories.js'
 import { pyScrapeList } from '../pybridge.js'
+import { categoryListKey } from '../util/cacheKeys.js'
 import { mapScrapeItemsEnriched, SCRAPE_PAGE_FULL } from './scrapeMap.js'
 import { withCache } from './cacheWrap.js'
 
@@ -106,7 +107,15 @@ export function warmPopularCategories() {
       return
     }
     const sort = defaultSortForCategory(cat.slug)
-    const key = `cat:v12:${locale}:${cat.slug}:1:24::${sort}`
+    // Must match routes/catalog.js — shared builder prevents silent key drift (OPT-16).
+    const key = categoryListKey({
+      locale,
+      slug: cat.slug,
+      page: 1,
+      pageSize: 24,
+      filters: '',
+      sort,
+    })
     try {
       const existing = await cacheGetEntry(key)
       if (existing && (!existing.expiresAt || existing.expiresAt > Date.now())) {

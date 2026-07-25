@@ -22,13 +22,14 @@ except ImportError:
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8790
 SESSION = requests.Session()
-IMPERSONATE = "chrome131"
+# Prefer chrome124 — aligns with list/resolve scrapers (OPT-18); chrome131 often CF-challenged on MissAV origin headers.
+IMPERSONATE = "chrome124"
 HEADERS = {
     "Referer": "https://missav.ws/",
     "Origin": "https://missav.ws",
     "Accept": "*/*",
     "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 }
 
 ALLOW_SUFFIXES = (

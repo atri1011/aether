@@ -60,19 +60,67 @@ function runPython(script, args = [], { timeoutMs = 45000 } = {}) {
   })
 }
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+/**
+ * OPT-17: decide whether a scrape RPC error may fall through to one-shot spawn.
+ * SCRAPE_BUSY must never spawn — that multiplies CF heat and CPU under load.
+ * WORKER_DOWN / other hard failures may use spawn as last resort.
+ */
+export function shouldSpawnOnScrapeError(err) {
+  if (!err) return true
+  if (err.code === 'SCRAPE_BUSY') return false
+  return true
+}
+
+/** Jittered backoff for busy retries (ms). Exported for unit tests. */
+export function busyRetryDelayMs(attempt) {
+  const base = 120 + attempt * 180
+  const jitter = Math.floor(Math.random() * 100)
+  return base + jitter
+}
+
+const BUSY_MAX_RETRIES = 3
+
 async function withWorker(rpcPath, body, fallback) {
   if (config.scrapeWorkerEnabled) {
-    try {
-      const data = await scrapeRpc(rpcPath, body)
-      metrics.inc('scrape_ok')
-      return data
-    } catch (e) {
-      // fall through to one-shot spawn
-      metrics.inc('scrape_fail')
-      if (process.env.AETHER_DEBUG) {
-        console.warn(`[pybridge] worker ${rpcPath} failed: ${e.message}`)
+    let lastErr = null
+    for (let attempt = 0; attempt <= BUSY_MAX_RETRIES; attempt++) {
+      try {
+        const data = await scrapeRpc(rpcPath, body)
+        metrics.inc('scrape_ok')
+        return data
+      } catch (e) {
+        lastErr = e
+        if (e?.code === 'SCRAPE_BUSY' && attempt < BUSY_MAX_RETRIES) {
+          metrics.inc('scrape_busy')
+          if (process.env.AETHER_DEBUG) {
+            console.warn(
+              `[pybridge] worker ${rpcPath} busy, retry ${attempt + 1}/${BUSY_MAX_RETRIES}`,
+            )
+          }
+          await sleep(busyRetryDelayMs(attempt))
+          continue
+        }
+        if (e?.code === 'SCRAPE_BUSY') {
+          // Exhausted busy retries — surface 503; do NOT spawn-amplify.
+          metrics.inc('scrape_busy')
+          metrics.inc('scrape_fail')
+          throw e
+        }
+        // Worker down / RPC error — fall through to one-shot spawn.
+        metrics.inc('scrape_fail')
+        if (process.env.AETHER_DEBUG) {
+          console.warn(`[pybridge] worker ${rpcPath} failed: ${e.message}`)
+        }
+        if (!shouldSpawnOnScrapeError(e)) throw e
+        break
       }
     }
+    // Preserve last error context if spawn also fails (attached below).
+    void lastErr
   }
   try {
     const data = await fallback()
