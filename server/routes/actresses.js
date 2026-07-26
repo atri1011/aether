@@ -207,6 +207,48 @@ router.get('/api/actresses/search', async (req, res) => {
   }
 })
 
+function mergeActressFields(base, next, slug) {
+  if (!next) return base
+  return {
+    ...base,
+    ...next,
+    slug: next.slug || base.slug || slug,
+    avatarUrl: next.avatarUrl || base.avatarUrl || '',
+    actressId: next.actressId || base.actressId || '',
+    name:
+      (next.name && next.name !== slug ? next.name : null) ||
+      (base.name && base.name !== slug ? base.name : null) ||
+      next.name ||
+      base.name ||
+      slug,
+    stats: next.stats || base.stats || null,
+    birthday: next.birthday || base.birthday || null,
+    age: next.age != null ? next.age : base.age,
+    videoCount: next.videoCount != null ? next.videoCount : base.videoCount,
+  }
+}
+
+function hasActressProfile(actress) {
+  return Boolean(
+    actress &&
+      (actress.avatarUrl ||
+        actress.actressId ||
+        actress.stats ||
+        actress.birthday ||
+        actress.videoCount != null),
+  )
+}
+
+function isTransientActressErr(msg) {
+  return /status 403|status 503|status 429|challenge|no candidate|no items parsed|scrape busy|timeout|ECONN|fetch failed/i.test(
+    String(msg || ''),
+  )
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
 router.get('/api/actresses/:slug', async (req, res) => {
   const locale = localeOf(req)
   let slug = String(req.params.slug || '').trim()
@@ -224,8 +266,8 @@ router.get('/api/actresses/:slug', async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1)
   const filters = sanitizeVideoFilter(req.query.filters || req.query.filter)
   const sort = sanitizeVideoSort(req.query.sort, DEFAULT_SORT.actress)
-  // v9: never bare actress URLs (CF JS challenge); page-only fallback for chips
-  const key = `actresses:detail:v9:${locale}:${slug}:${page}:${filters}:${sort}`
+  // v10: omit default sort upstream + search-resolve + soft CF retry
+  const key = `actresses:detail:v10:${locale}:${slug}:${page}:${filters}:${sort}`
   try {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       let actress = { slug, name: slug }
@@ -236,102 +278,83 @@ router.get('/api/actresses/:slug', async (req, res) => {
       let hasMore = false
       let maxPage = page
 
+      const applyDetail = async (detail, sourceTag) => {
+        if (!detail?.ok) {
+          if (detail && detail.ok === false) {
+            lastErr = detail.error || 'actress detail scrape failed'
+          }
+          return false
+        }
+        if (detail.actress) {
+          actress = mergeActressFields(actress, detail.actress, slug)
+        }
+        if (detail.items?.length) {
+          items = await mapScrapeItemsEnriched(detail.items, locale)
+          url = detail.url
+          source = sourceTag || (detail.sortFallback ? 'scrape-detail-fallback' : 'scrape-detail')
+          lastErr = null
+        } else if (detail.url) {
+          url = detail.url
+          source = sourceTag || (detail.sortFallback ? 'scrape-detail-fallback' : 'scrape-detail')
+        }
+        if (typeof detail.hasMore === 'boolean') hasMore = detail.hasMore
+        if (Number(detail.maxPage) > 0) maxPage = Number(detail.maxPage)
+        if (detail.resolvedFrom) {
+          source = 'scrape-detail-resolved'
+        }
+        return Boolean(items.length || hasActressProfile(actress))
+      }
+
+      // Attempt 1: full detail scrape (Python omits default released_at sort).
       try {
         const detail = await pyScrapeActressDetail(slug, page, locale, {
           sort,
           filter: filters,
         })
-        if (detail?.ok) {
-          if (detail.actress) {
-            const next = detail.actress
-            actress = {
-              ...actress,
-              ...next,
-              avatarUrl: next.avatarUrl || actress.avatarUrl || '',
-              actressId: next.actressId || actress.actressId || '',
-              name:
-                (next.name && next.name !== slug ? next.name : null) ||
-                (actress.name && actress.name !== slug ? actress.name : null) ||
-                next.name ||
-                actress.name ||
-                slug,
-              stats: next.stats || actress.stats || null,
-              birthday: next.birthday || actress.birthday || null,
-              age: next.age != null ? next.age : actress.age,
-              videoCount: next.videoCount != null ? next.videoCount : actress.videoCount,
-            }
-          }
-          if (detail.items?.length) {
-            items = await mapScrapeItemsEnriched(detail.items, locale)
-            url = detail.url
-            source = detail.sortFallback ? 'scrape-detail-fallback' : 'scrape-detail'
-          } else if (detail.url) {
-            url = detail.url
-            source = detail.sortFallback ? 'scrape-detail-fallback' : 'scrape-detail'
-          }
-          if (typeof detail.hasMore === 'boolean') hasMore = detail.hasMore
-          if (Number(detail.maxPage) > 0) maxPage = Number(detail.maxPage)
-        } else if (detail && detail.ok === false) {
-          lastErr = detail.error || 'actress detail scrape failed'
-        }
+        await applyDetail(detail)
       } catch (e) {
         lastErr = e.message || 'actress detail scrape failed'
       }
 
-      // Second chance: default page-only detail (no sort/filter chips). MissAV
-      // CF-challenges bare actress URLs; scrape_detail always sends ?page=1.
-      // Avoids "actress not found" after a chip change when the chip URL 403s.
+      // Attempt 2: short cool-down + plain page-only (transient CF soft-blocks).
+      if (!items.length && page <= 1 && isTransientActressErr(lastErr)) {
+        await sleep(700)
+        try {
+          const retry = await pyScrapeActressDetail(slug, page, locale, {
+            sort: '',
+            filter: '',
+          })
+          await applyDetail(retry, 'scrape-detail-retry')
+        } catch (e) {
+          lastErr = lastErr || e.message
+        }
+      }
+
+      // Attempt 3: chip fallback when non-default sort/filter still empty.
       if (!items.length && (filters || (sort && sort !== DEFAULT_SORT.actress))) {
         try {
           const plain = await pyScrapeActressDetail(slug, page, locale, {
             sort: '',
             filter: '',
           })
-          if (plain?.ok) {
-            if (plain.actress) {
-              const next = plain.actress
-              actress = {
-                ...actress,
-                ...next,
-                avatarUrl: next.avatarUrl || actress.avatarUrl || '',
-                actressId: next.actressId || actress.actressId || '',
-                name:
-                  (next.name && next.name !== slug ? next.name : null) ||
-                  (actress.name && actress.name !== slug ? actress.name : null) ||
-                  next.name ||
-                  actress.name ||
-                  slug,
-                stats: next.stats || actress.stats || null,
-                birthday: next.birthday || actress.birthday || null,
-                age: next.age != null ? next.age : actress.age,
-                videoCount:
-                  next.videoCount != null ? next.videoCount : actress.videoCount,
-              }
-            }
-            if (plain.items?.length) {
-              items = await mapScrapeItemsEnriched(plain.items, locale)
-              url = plain.url || url
-              source = 'scrape-detail-fallback'
-              if (typeof plain.hasMore === 'boolean') hasMore = plain.hasMore
-              if (Number(plain.maxPage) > 0) maxPage = Number(plain.maxPage)
-              lastErr = null
-            }
-          }
+          await applyDetail(plain, 'scrape-detail-fallback')
         } catch {
-          /* keep lastErr from first attempt */
+          /* keep lastErr */
         }
       }
 
+      // Attempt 4: generic list scraper for actresses/{slug}.
       if (!items.length) {
         try {
           const list = await pyScrapeList(`actresses/${slug}`, page, locale, {
             filters,
-            sort,
+            sort: sort === DEFAULT_SORT.actress ? '' : sort,
           })
           if (list?.ok && list.items?.length) {
             items = await mapScrapeItemsEnriched(list.items, locale)
             url = list.url || url
             source = 'scrape'
+            lastErr = null
             if (typeof list.hasMore === 'boolean') hasMore = list.hasMore
             else hasMore = items.length > 0
           } else if (list && list.ok === false) {
@@ -343,6 +366,57 @@ router.get('/api/actresses/:slug', async (req, res) => {
         }
       }
 
+      // Attempt 5: search rail → seed profile (and retry detail with canonical slug).
+      if (!items.length && !hasActressProfile(actress) && page <= 1) {
+        try {
+          const found = await pyScrapeActressesSearch({ q: slug, locale, limit: 6 })
+          const hits = found?.ok ? found.items || [] : []
+          const best =
+            hits.find((h) => String(h.slug || '') === slug) ||
+            hits.find((h) => {
+              const n = String(h.name || '').replace(/\s+/g, '')
+              const s = slug.replace(/\s+/g, '')
+              return n === s || n.includes(s) || s.includes(n)
+            }) ||
+            hits[0]
+          if (best) {
+            actress = mergeActressFields(
+              actress,
+              {
+                slug: best.slug || slug,
+                name: best.name || slug,
+                avatarUrl: best.avatarUrl || '',
+                actressId: best.actressId || '',
+                videoCount: best.videoCount,
+                debutYear: best.debutYear,
+                rank: best.rank,
+              },
+              slug,
+            )
+            const canon = String(best.slug || '').trim()
+            if (canon && canon !== slug) {
+              try {
+                const resolved = await pyScrapeActressDetail(canon, page, locale, {
+                  sort,
+                  filter: filters,
+                })
+                if (resolved?.ok) {
+                  await applyDetail(resolved, 'scrape-detail-resolved')
+                }
+              } catch {
+                /* profile seed alone is still useful */
+              }
+            }
+            if (!items.length && hasActressProfile(actress)) {
+              source = source || 'scrape-search-profile'
+              lastErr = null
+            }
+          }
+        } catch {
+          /* ignore search seed failures */
+        }
+      }
+
       const actressName = actress.name || slug
       if (actressName && items.length) {
         items = items.map((it) =>
@@ -350,31 +424,28 @@ router.get('/api/actresses/:slug', async (req, res) => {
         )
       }
 
-      // CJK MissAV slugs are the display name itself (河北彩花), so name === slug is
-      // normal — require avatar/stats/birthday/videoCount, not a different name.
-      const hasProfile = Boolean(
-        actress &&
-          (actress.avatarUrl ||
-            actress.actressId ||
-            actress.stats ||
-            actress.birthday ||
-            actress.videoCount != null),
-      )
-      if (!items.length && !hasProfile && lastErr) {
+      if (!items.length && !hasActressProfile(actress) && lastErr) {
         // Page 2+ often returns a bare profile shell (portrait only on page 1).
         // A CF blip or empty tail page must end pagination, not 503 the detail
         // API — that made infinite-scroll loadMore fail and the client hide
         // every already-loaded card.
         if (page <= 1) {
           const msg = String(lastErr)
+          const blocked = isTransientActressErr(msg) || /status 403|challenge/i.test(msg)
+          const missing = /status 404|not found/i.test(msg)
           const err = new Error(
-            msg === 'no items parsed' ||
-              /status 403|status 404|no candidate|challenge/i.test(msg)
-              ? `actress not found or blocked: ${slug}`
-              : msg,
+            missing
+              ? `actress not found: ${slug}`
+              : blocked
+                ? `actress temporarily blocked by upstream (retry): ${slug}`
+                : msg === 'no items parsed' || /no candidate/i.test(msg)
+                  ? `actress not found or blocked: ${slug}`
+                  : msg,
           )
-          err.code = /404|not found/i.test(msg) ? 'NOT_FOUND' : 'UPSTREAM'
+          // Transient CF → UPSTREAM 503 (client retries). True miss → NOT_FOUND 404.
+          err.code = missing ? 'NOT_FOUND' : 'UPSTREAM'
           err.details = lastErr
+          err.retryable = Boolean(blocked && !missing)
           throw err
         }
         hasMore = false

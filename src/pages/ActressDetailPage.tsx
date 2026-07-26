@@ -88,7 +88,25 @@ export function ActressDetailPage() {
 
   const loader = useCallback(
     async (page: number, signal: AbortSignal) => {
-      const d = await api.actressDetail(slug, locale, page, query, { signal })
+      const loadOnce = () => api.actressDetail(slug, locale, page, query, { signal })
+      let d: Awaited<ReturnType<typeof loadOnce>>
+      try {
+        d = await loadOnce()
+      } catch (e) {
+        // One client-side retry for transient CF / worker busy (503 UPSTREAM).
+        // True NOT_FOUND (404) must not loop.
+        const err = e as Error & { code?: string; status?: number }
+        const retryable =
+          page <= 1 &&
+          !signal.aborted &&
+          err?.status === 503 &&
+          err?.code !== 'NOT_FOUND' &&
+          /blocked|upstream|busy|timeout|403|503|429/i.test(String(err?.message || ''))
+        if (!retryable) throw e
+        await new Promise((r) => setTimeout(r, 900))
+        if (signal.aborted) throw e
+        d = await loadOnce()
+      }
       if (d.actress) {
         // Never replace a rich page-1 profile with a bare page-N shell.
         setProfile((prev) => mergeActressProfile(prev, d.actress))
@@ -106,7 +124,7 @@ export function ActressDetailPage() {
     [slug, locale, query],
   )
 
-  const { items, loading, loadingMore, error, hasMore, loadMore } = usePagedList(loader, [
+  const { items, loading, loadingMore, error, hasMore, loadMore, reload } = usePagedList(loader, [
     slug,
     locale,
     query.filters,
@@ -190,7 +208,18 @@ export function ActressDetailPage() {
         </div>
         <VideoFilterBar options={filterOptions} value={query} onChange={setQuery} />
         {loading && !items.length && <VideoSkeletonGrid count={12} />}
-        {error && !items.length && <div className="state error">{error}</div>}
+        {error && !items.length && (
+          <div className="state error" style={{ display: 'grid', gap: '0.75rem', justifyItems: 'start' }}>
+            <span>
+              {/blocked|busy|timeout|403|503|429|upstream/i.test(error)
+                ? tr('actressUpstreamRetry')
+                : error}
+            </span>
+            <button type="button" className="chip" onClick={() => void reload()}>
+              {tr('retry')}
+            </button>
+          </div>
+        )}
         {/* Keep existing cards visible while loading more / after a page-N error.
             The old `!(!loading && !error)` gate hid the whole grid once loadMore
             set `error`, so scrolling for page 2 made every video "disappear". */}

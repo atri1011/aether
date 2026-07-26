@@ -697,6 +697,51 @@ def scrape_ranking(locale: str = "zh") -> dict:
     return result
 
 
+# MissAV actress works default sort (site UI). Sending this as ?sort= doubles CF
+# heat on every detail load — the bare ?page=1 form already returns that order.
+ACTRESS_SITE_DEFAULT_SORT = "released_at"
+
+# Common JP ↔ simplified CN character pairs seen in MissAV actress names.
+# Applied only as *additional* path variants (never replace the original slug).
+_CJK_VARIANT_PAIRS = (
+    ("亜", "亚"),
+    ("愛", "爱"),
+    ("澤", "泽"),
+    ("邊", "边"),
+    ("國", "国"),
+    ("實", "实"),
+    ("櫻", "樱"),
+    ("紗", "纱"),
+    ("繪", "绘"),
+    ("裡", "里"),
+    ("濱", "滨"),
+    ("島", "岛"),
+    ("鷹", "鹰"),
+    ("龍", "龙"),
+    ("涼", "凉"),
+    ("凜", "凛"),
+)
+
+
+def _cjk_name_variants(name: str) -> list[str]:
+    """Expand a CJK name with JP/CN character alternates (bounded)."""
+    raw = (name or "").strip()
+    if not raw:
+        return []
+    out: list[str] = [raw]
+    # Single-pass bidirectional substitution of known pairs.
+    for a, b in _CJK_VARIANT_PAIRS:
+        if a in raw:
+            alt = raw.replace(a, b)
+            if alt not in out:
+                out.append(alt)
+        if b in raw:
+            alt = raw.replace(b, a)
+            if alt not in out:
+                out.append(alt)
+    return out
+
+
 def _detail_slug_variants(slug: str) -> list[str]:
     """URL path variants for an actress slug (encoding + light normalization)."""
     raw = unquote(slug or "").strip()
@@ -704,8 +749,18 @@ def _detail_slug_variants(slug: str) -> list[str]:
         return []
     # Collapse whitespace; keep fullwidth / halfwidth parens as-is (MissAV uses both).
     collapsed = re.sub(r"\s+", " ", raw).strip()
+    # Hyphenated romaji → spaced form (search/path probes).
+    dehyphen = collapsed.replace("-", " ") if "-" in collapsed else ""
+    base_names: list[str] = []
+    for name in (raw, collapsed, dehyphen):
+        if name and name not in base_names:
+            base_names.append(name)
+        for alt in _cjk_name_variants(name):
+            if alt and alt not in base_names:
+                base_names.append(alt)
+
     variants: list[str] = []
-    for name in (raw, collapsed):
+    for name in base_names:
         if name and name not in variants:
             variants.append(name)
         enc = quote(name, safe="")
@@ -762,6 +817,45 @@ def _detail_path_urls(slug: str, locale: str) -> list[str]:
     return urls
 
 
+def _resolve_slugs_via_search(slug: str, locale: str, *, limit: int = 6) -> list[str]:
+    """Map a free-form name/slug to MissAV canonical actress path segments.
+
+    Used when direct /actresses/{slug} 404s or is CF-blocked — the search rail
+    often still returns the right card (and a slightly different CJK form).
+    """
+    q = unquote(slug or "").strip()
+    if not q:
+        return []
+    # Prefer spaced query for hyphenated romaji; keep original too.
+    queries = [q]
+    if "-" in q:
+        spaced = re.sub(r"[-_]+", " ", q).strip()
+        if spaced and spaced not in queries:
+            queries.append(spaced)
+    out: list[str] = []
+    seen: set[str] = set()
+    for query in queries:
+        try:
+            hit = scrape_search(query, locale, limit=limit)
+        except Exception:
+            continue
+        for it in hit.get("items") or []:
+            s = (it.get("slug") or "").strip()
+            if not s or s in seen:
+                continue
+            sc = fuzzy_score(q, it.get("name") or "", s)
+            # Keep strong matches only — avoid hijacking to an unrelated rail hit.
+            if sc < 40 and normalize_name(s) != normalize_name(q):
+                # Exact rail hit on first result is still useful when query == name.
+                if normalize_name(it.get("name") or "") != normalize_name(q):
+                    continue
+            seen.add(s)
+            out.append(s)
+        if out:
+            break
+    return out
+
+
 def scrape_detail(
     slug: str,
     page: int = 1,
@@ -769,17 +863,25 @@ def scrape_detail(
     *,
     sort: str | None = None,
     filt: str | None = None,
+    _resolved: bool = False,
 ) -> dict:
     slug = unquote(slug or "").strip()
     if not slug:
-        return {"ok": False, "error": "slug required"}
+        return {"ok": False, "error": "slug required", "code": "CONFIG"}
 
-    sort = (sort or "").strip() or None
+    requested_sort = (sort or "").strip() or None
     filt = (filt or "").strip() or None
-    if sort in {"-", ""}:
-        sort = None
+    if requested_sort in {"-", ""}:
+        requested_sort = None
     if filt in {"-", ""}:
         filt = None
+
+    # Omit site-default sort from the upstream query. Client always sends
+    # sort=released_at; burning a full URL matrix with ?sort= first is the main
+    # reason detail intermittently lands on CF 403 before page-only fallback.
+    sort = requested_sort
+    if sort == ACTRESS_SITE_DEFAULT_SORT:
+        sort = None
 
     def with_query(
         base_urls: list[str],
@@ -874,18 +976,16 @@ def scrape_detail(
         }
 
     # Strategy (wall-clock budget must stay under Node's ~50s spawn timeout):
-    # 1) Requested sort/filters on a small primary URL set.
-    # 2) Fallback: same paths with only ``?page=N`` (or ``?page=1``) — NOT a bare
-    #    path. Bare actress URLs are CF-challenged; page-only query unlocks HTML.
-    #    Prefer content over exact chip match rather than "actress not found".
-    # 3) Default listing (no extra sort/filter) uses page-only from the start.
+    # 1) Default listing uses page-only from the start (site default sort omitted).
+    # 2) Explicit non-default sort/filters: try chips first, then page-only fallback.
+    # 3) On hard miss: resolve canonical slug via search rail and retry once.
     result: dict
     sort_fallback = False
     if has_extra_query:
         result = fetch_first_ok(
             with_query(primary, sort_v=sort, filt_v=filt),
             parse,
-            retries=1,
+            retries=2,
         )
         if not result.get("ok") and secondary:
             # One more short wave for alternate hosts/encodings with the same chips.
@@ -899,7 +999,7 @@ def scrape_detail(
             page_only = fetch_first_ok(
                 with_query(primary + secondary[:4], sort_v=None, filt_v=None),
                 parse,
-                retries=1,
+                retries=2,
             )
             if page_only.get("ok"):
                 result = page_only
@@ -908,8 +1008,37 @@ def scrape_detail(
         result = fetch_first_ok(
             with_query(primary + secondary[:4], sort_v=None, filt_v=None),
             parse,
-            retries=1,
+            retries=2,
         )
+
+    # Search-rail slug resolve: wrong CJK form / alias → 404 while search still hits.
+    if not result.get("ok") and not _resolved and page <= 1:
+        err_msg = str(result.get("error") or "")
+        # Worth resolving on true misses and soft blocks (not config errors).
+        if re.search(r"404|no items|no candidate|status 403|challenge", err_msg, re.I) or not err_msg:
+            for alt in _resolve_slugs_via_search(slug, locale):
+                if not alt or alt == slug:
+                    continue
+                alt_result = scrape_detail(
+                    alt,
+                    page,
+                    locale,
+                    sort=requested_sort,
+                    filt=filt,
+                    _resolved=True,
+                )
+                if alt_result.get("ok"):
+                    alt_result = dict(alt_result)
+                    alt_result["resolvedFrom"] = slug
+                    alt_result["slug"] = alt
+                    # Keep profile.slug as the canonical path segment we fetched.
+                    if isinstance(alt_result.get("actress"), dict):
+                        alt_result["actress"] = {
+                            **alt_result["actress"],
+                            "slug": alt,
+                        }
+                    result = alt_result
+                    break
 
     if result.get("ok"):
         try:
@@ -919,13 +1048,22 @@ def scrape_detail(
             )
         except Exception:
             pass
+    else:
+        # Classify for the Node layer: real 404 vs transient CF block.
+        err = str(result.get("error") or "")
+        if re.search(r"status 404", err, re.I):
+            result.setdefault("code", "NOT_FOUND")
+        elif re.search(r"status 403|challenge|no candidate|no items", err, re.I):
+            result.setdefault("code", "BLOCKED")
+        else:
+            result.setdefault("code", "UPSTREAM")
 
     result.setdefault("page", page)
     result.setdefault("locale", normalize_locale(locale))
     result.setdefault("slug", slug)
     if sort_fallback:
         result["sortFallback"] = True
-        result["requestedSort"] = sort
+        result["requestedSort"] = requested_sort
         result["requestedFilter"] = filt
     # Safe defaults if parse never set them (error paths).
     if "hasMore" not in result:
