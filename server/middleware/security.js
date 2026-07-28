@@ -59,8 +59,13 @@ export function createApiRateLimiters() {
     max: config.rateLimitHls || 300,
   })
 
+  // Scrape-backed catalog paths. Keep /api/actresses/filters on the general
+  // bucket — it is pure local JSON (no upstream) and remounts on every back-nav.
   const heavyRe =
-    /^\/api\/(search|browse|c\/|actresses|genres|makers|home)/i
+    /^\/api\/(search|browse|c\/|genres|makers|home)(\/|$)/i
+  const actressHeavyRe =
+    /^\/api\/actresses(\/|$)/i
+  const actressLight = new Set(['/api/actresses/filters'])
 
   return function apiRateLimit(req, res, next) {
     if (!req.path?.startsWith('/api')) return next()
@@ -68,7 +73,10 @@ export function createApiRateLimiters() {
     if (req.path === '/api/hls' || req.path.startsWith('/api/hls')) {
       return hls(req, res, next)
     }
-    if (heavyRe.test(req.path)) {
+    if (actressLight.has(req.path)) {
+      return general(req, res, next)
+    }
+    if (heavyRe.test(req.path) || actressHeavyRe.test(req.path)) {
       return scrapeHeavy(req, res, next)
     }
     return general(req, res, next)

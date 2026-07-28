@@ -36,9 +36,8 @@ export function usePagedList(loader: Loader, deps: unknown[]) {
     setItems([])
     setPage(0)
     setHasMore(true)
-    try {
-      const d = await loaderRef.current(1, ac.signal)
-      if (ac.signal.aborted) return
+
+    const applyPage = (d: PageResult) => {
       setItems(d.items || [])
       setPage(1)
       const more =
@@ -47,8 +46,30 @@ export function usePagedList(loader: Loader, deps: unknown[]) {
           : (d.items?.length || 0) >= Math.min(d.pageSize || 24, 12)
       setHasMore(more)
       setMeta(d as unknown as Record<string, unknown>)
+    }
+
+    try {
+      const d = await loaderRef.current(1, ac.signal)
+      if (ac.signal.aborted) return
+      applyPage(d)
     } catch (e) {
-      if (isAbortError(e) || ac.signal.aborted) return
+      if (ac.signal.aborted) return
+      // Shared in-flight fetch may reject with AbortError from a *previous*
+      // caller's signal (StrictMode / sort switch). Our signal is still live —
+      // retry once instead of leaving an empty "没结果" grid.
+      if (isAbortError(e)) {
+        try {
+          const d = await loaderRef.current(1, ac.signal)
+          if (ac.signal.aborted) return
+          applyPage(d)
+          return
+        } catch (e2) {
+          if (ac.signal.aborted || isAbortError(e2)) return
+          setError(e2 instanceof Error ? e2.message : String(e2))
+          setHasMore(false)
+          return
+        }
+      }
       setError(e instanceof Error ? e.message : String(e))
       setHasMore(false)
     } finally {

@@ -14,7 +14,7 @@ import {
   pyScrapeList,
 } from '../pybridge.js'
 import { withCache } from '../services/cacheWrap.js'
-import { mapScrapeItemsEnriched } from '../services/scrapeMap.js'
+import { mapScrapeItems } from '../services/scrapeMap.js'
 import { localeOf, qStr } from '../util/locale.js'
 import { sendError } from '../util/sendError.js'
 
@@ -266,10 +266,15 @@ router.get('/api/actresses/:slug', async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1)
   const filters = sanitizeVideoFilter(req.query.filters || req.query.filter)
   const sort = sanitizeVideoSort(req.query.sort, DEFAULT_SORT.actress)
-  // v10: omit default sort upstream + search-resolve + soft CF retry
-  const key = `actresses:detail:v10:${locale}:${slug}:${page}:${filters}:${sort}`
+  // v12: MissAV-style first paint + do not stick empty non-default sort shells in cache.
+  // Cover URLs + duration badges come from list HTML; actress name is filled from profile.
+  const key = `actresses:detail:v12:${locale}:${slug}:${page}:${filters}:${sort}`
+  const isDefaultListing = !filters && (!sort || sort === DEFAULT_SORT.actress)
   try {
-    const { data, cache } = await withCache(key, config.ttl.browse, async () => {
+    const { data, cache } = await withCache(
+      key,
+      config.ttl.browse,
+      async () => {
       let actress = { slug, name: slug }
       let items = []
       let source = 'scrape'
@@ -277,6 +282,10 @@ router.get('/api/actresses/:slug', async (req, res) => {
       let lastErr = null
       let hasMore = false
       let maxPage = page
+
+      // Pure scrape → DTO. Do NOT await Recombee here: enrich used to add 0.5–2s
+      // before any coverUrl reached the browser (MissAV ships covers in HTML immediately).
+      const toSummaries = (rawItems) => mapScrapeItems(rawItems)
 
       const applyDetail = async (detail, sourceTag) => {
         if (!detail?.ok) {
@@ -289,7 +298,7 @@ router.get('/api/actresses/:slug', async (req, res) => {
           actress = mergeActressFields(actress, detail.actress, slug)
         }
         if (detail.items?.length) {
-          items = await mapScrapeItemsEnriched(detail.items, locale)
+          items = toSummaries(detail.items)
           url = detail.url
           source = sourceTag || (detail.sortFallback ? 'scrape-detail-fallback' : 'scrape-detail')
           lastErr = null
@@ -351,7 +360,7 @@ router.get('/api/actresses/:slug', async (req, res) => {
             sort: sort === DEFAULT_SORT.actress ? '' : sort,
           })
           if (list?.ok && list.items?.length) {
-            items = await mapScrapeItemsEnriched(list.items, locale)
+            items = toSummaries(list.items)
             url = list.url || url
             source = 'scrape'
             lastErr = null
@@ -417,6 +426,23 @@ router.get('/api/actresses/:slug', async (req, res) => {
         }
       }
 
+      // Last resort for non-default sort/filter: plain listing so chips never
+      // surface a profile-only empty shell ("没结果").
+      if (!items.length && page <= 1 && !isDefaultListing) {
+        try {
+          const plain = await pyScrapeActressDetail(slug, page, locale, {
+            sort: '',
+            filter: '',
+          })
+          if (plain?.ok && plain.items?.length) {
+            await applyDetail(plain, 'scrape-detail-sort-fallback')
+            source = 'scrape-detail-sort-fallback'
+          }
+        } catch {
+          /* keep empty */
+        }
+      }
+
       const actressName = actress.name || slug
       if (actressName && items.length) {
         items = items.map((it) =>
@@ -466,7 +492,13 @@ router.get('/api/actresses/:slug', async (req, res) => {
         source,
         url,
       }
-    })
+    },
+      {
+        // Never persist empty non-default sort/filter responses (15min sticky miss).
+        shouldCache: (d) =>
+          Boolean(d?.items?.length) || (isDefaultListing && hasActressProfile(d?.actress)),
+      },
+    )
     res.setHeader('X-Aether-Cache', cache)
     res.json(data)
   } catch (e) {

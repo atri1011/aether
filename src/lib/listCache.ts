@@ -30,27 +30,62 @@ export function listCacheSet<T>(key: string, value: T, ttlMs = DEFAULT_TTL): T {
 /** In-flight de-dupe for identical GETs (hover prefetch + page load). */
 const pending = new Map<string, Promise<unknown>>()
 
+function abortError() {
+  const err = new Error('Aborted')
+  err.name = 'AbortError'
+  return err
+}
+
+export type ListCacheLoadOpts<T> = {
+  /** Caller abort — checked around the shared fetch; never fed into loader. */
+  signal?: AbortSignal
+  /** Return false to skip caching (e.g. empty sort results). Default: always cache. */
+  cacheIf?: (value: T) => boolean
+  ttlMs?: number
+}
+
+/**
+ * Load with memory cache + in-flight de-dupe.
+ *
+ * IMPORTANT: `loader` must NOT use the caller's AbortSignal. React StrictMode
+ * aborts the first effect's signal while a second effect joins the same
+ * in-flight promise — if loader is tied to signal #1, waiter #2 gets AbortError
+ * and usePagedList leaves the grid empty ("没结果") for cold sort/filter keys.
+ */
 export function listCacheLoad<T>(
   key: string,
   loader: () => Promise<T>,
-  ttlMs = DEFAULT_TTL,
+  opts?: number | ListCacheLoadOpts<T>,
 ): Promise<T> {
+  const options: ListCacheLoadOpts<T> =
+    typeof opts === 'number' ? { ttlMs: opts } : opts || {}
+  const ttlMs = options.ttlMs ?? DEFAULT_TTL
+  const signal = options.signal
+
+  if (signal?.aborted) return Promise.reject(abortError())
+
   const hit = listCacheGet<T>(key)
-  if (hit != null) return Promise.resolve(hit)
-  const inflight = pending.get(key)
-  if (inflight) return inflight as Promise<T>
-  const p = loader()
-    .then((v) => {
-      listCacheSet(key, v, ttlMs)
-      return v
-    })
-    .catch((e) => {
-      // Don't cache abort / transient failures for in-flight peers
-      throw e
-    })
-    .finally(() => pending.delete(key))
-  pending.set(key, p)
-  return p
+  if (hit != null) {
+    if (signal?.aborted) return Promise.reject(abortError())
+    return Promise.resolve(hit)
+  }
+
+  let inflight = pending.get(key) as Promise<T> | undefined
+  if (!inflight) {
+    inflight = loader()
+      .then((v) => {
+        const ok = options.cacheIf ? options.cacheIf(v) : true
+        if (ok) listCacheSet(key, v, ttlMs)
+        return v
+      })
+      .finally(() => pending.delete(key))
+    pending.set(key, inflight)
+  }
+
+  return inflight.then((v) => {
+    if (signal?.aborted) throw abortError()
+    return v
+  })
 }
 
 export function categoryListCacheKey(
@@ -62,4 +97,39 @@ export function categoryListCacheKey(
   sort = '',
 ) {
   return `cat:${locale}:${slug}:${page}:${pageSize}:${filters}:${sort}`
+}
+
+/** Actress detail page 1 — press-prefetch + revisit. */
+export function actressDetailCacheKey(
+  slug: string,
+  locale: string,
+  page: number,
+  filters = '',
+  sort = '',
+) {
+  return `actress:${locale}:${slug}:${page}:${filters}:${sort}`
+}
+
+/** Actress index / ranking — so back-navigation does not re-hit scrape limits. */
+export function actressListCacheKey(
+  locale: string,
+  page: number,
+  filters: {
+    sort?: string
+    height?: string
+    cup?: string
+    age?: string
+    debut?: string
+  } = {},
+) {
+  const sort = filters.sort || 'videos'
+  const height = filters.height || ''
+  const cup = filters.cup || ''
+  const age = filters.age || ''
+  const debut = filters.debut || ''
+  return `actresses:list:${locale}:${page}:${sort}:${height}:${cup}:${age}:${debut}`
+}
+
+export function actressRankingCacheKey(locale: string) {
+  return `actresses:ranking:${locale}`
 }

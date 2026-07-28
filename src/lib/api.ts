@@ -13,7 +13,13 @@ import type {
   VideoListQuery,
   VideoSummary,
 } from '../types'
-import { categoryListCacheKey, listCacheLoad } from './listCache'
+import {
+  actressDetailCacheKey,
+  actressListCacheKey,
+  actressRankingCacheKey,
+  categoryListCacheKey,
+  listCacheLoad,
+} from './listCache'
 import { defaultSortForCategory } from './videoListDefaults'
 
 export type FetchOpts = { signal?: AbortSignal }
@@ -183,12 +189,19 @@ export const api = {
     const filters = query?.filters || ''
     const sort = query?.sort || ''
     const key = categoryListCacheKey(slug, locale, page, pageSize, filters, sort)
-    return listCacheLoad(key, () =>
-      getJson<VideoListResponse>(
-        withVideoQuery(`/api/c/${path}`, locale, page, pageSize, query),
-        locale,
-        opts,
-      ),
+    // Loader must ignore caller signal — shared in-flight + StrictMode abort
+    // would otherwise poison cold sort/filter keys (empty grid).
+    return listCacheLoad(
+      key,
+      () =>
+        getJson<VideoListResponse>(
+          withVideoQuery(`/api/c/${path}`, locale, page, pageSize, query),
+          locale,
+        ),
+      {
+        signal: opts?.signal,
+        cacheIf: (d) => (d.items?.length || 0) > 0,
+      },
     )
   },
   /**
@@ -253,12 +266,18 @@ export const api = {
       locale,
       opts,
     ),
-  actressRanking: (locale: Locale, opts?: FetchOpts) =>
-    getJson<{ title: string; items: ActressSummary[]; count: number }>(
-      `/api/actresses/ranking?locale=${locale}`,
-      locale,
-      opts,
-    ),
+  actressRanking: (locale: Locale, opts?: FetchOpts) => {
+    const key = actressRankingCacheKey(locale)
+    return listCacheLoad(
+      key,
+      () =>
+        getJson<{ title: string; items: ActressSummary[]; count: number }>(
+          `/api/actresses/ranking?locale=${locale}`,
+          locale,
+        ),
+      { signal: opts?.signal, cacheIf: (d) => (d.items?.length || 0) > 0 },
+    )
+  },
   actresses: (locale: Locale, page = 1, filters: ActressListFilters = {}, opts?: FetchOpts) => {
     const p = new URLSearchParams()
     p.set('locale', locale)
@@ -268,14 +287,20 @@ export const api = {
     if (filters.cup) p.set('cup', filters.cup)
     if (filters.age) p.set('age', filters.age)
     if (filters.debut) p.set('debut', filters.debut)
-    return getJson<{
+    type ActressListResponse = {
       items: ActressSummary[]
       page: number
       pageSize: number
       hasMore?: boolean
       filters: ActressListFilters
       filterOptions: ActressFilterOptions
-    }>(`/api/actresses?${p.toString()}`, locale, opts)
+    }
+    const key = actressListCacheKey(locale, page, filters)
+    return listCacheLoad(
+      key,
+      () => getJson<ActressListResponse>(`/api/actresses?${p.toString()}`, locale),
+      { signal: opts?.signal, cacheIf: (d) => (d.items?.length || 0) > 0 },
+    )
   },
   actressSearch: (q: string, locale: Locale, limit = 12, opts?: FetchOpts) => {
     const p = new URLSearchParams()
@@ -297,12 +322,14 @@ export const api = {
     query?: VideoListQuery,
     opts?: FetchOpts,
   ) => {
+    const filters = query?.filters || ''
+    const sort = query?.sort || ''
     const p = new URLSearchParams()
     p.set('locale', locale)
     p.set('page', String(page))
-    if (query?.filters) p.set('filters', query.filters)
-    if (query?.sort) p.set('sort', query.sort)
-    return getJson<{
+    if (filters) p.set('filters', filters)
+    if (sort) p.set('sort', sort)
+    type ActressDetailResponse = {
       actress: ActressProfile
       items: VideoSummary[]
       page: number
@@ -311,7 +338,31 @@ export const api = {
       filters?: string
       sort?: string
       filterOptions?: VideoFilterOptions
-    }>(`/api/actresses/${encodeURIComponent(slug)}?${p.toString()}`, locale, opts)
+    }
+    const url = `/api/actresses/${encodeURIComponent(slug)}?${p.toString()}`
+    // Page 1 shared with press-prefetch + revisit. Later pages stay uncached.
+    // Never bind AbortSignal to the shared loader — StrictMode aborts effect #1
+    // while effect #2 joins the same promise; that used to leave non-default
+    // sorts as a permanent empty grid ("没结果").
+    if (page === 1) {
+      const key = actressDetailCacheKey(slug, locale, page, filters, sort)
+      return listCacheLoad(key, () => getJson<ActressDetailResponse>(url, locale), {
+        signal: opts?.signal,
+        cacheIf: (d) => (d.items?.length || 0) > 0,
+      })
+    }
+    return getJson<ActressDetailResponse>(url, locale, opts)
+  },
+  /**
+   * Press-intent page-1 warm (pointerdown on actress card — not hover).
+   * Hover prefetch on dense grids exhausts scrape rate limit (30/min).
+   */
+  prefetchActressDetail: (slug: string, locale: Locale, query?: VideoListQuery) => {
+    const s = String(slug || '').trim()
+    if (!s) return
+    const sort = query?.sort || 'released_at'
+    const filters = query?.filters || ''
+    void api.actressDetail(s, locale, 1, { sort, filters }).catch(() => {})
   },
 }
 

@@ -1289,11 +1289,11 @@
     gap: 0.95rem 0.72rem;
   }
 
-  /* Overlay title needs room; badges sit mid-cover on touch */
+  /* Cover bottom-right, same row as actress name */
   .card-badges {
-    bottom: auto;
-    top: 2.15rem;
-    right: 0.35rem;
+    top: auto;
+    right: 0.4rem;
+    bottom: 0.55rem;
   }
 
   .card-preview-badge {
@@ -1454,9 +1454,9 @@
   }
 
   .card-badges {
+    top: auto;
     right: 0.3rem;
-    top: 2.05rem;
-    bottom: auto;
+    bottom: 0.5rem;
     gap: 0.2rem;
   }
 
@@ -1624,8 +1624,8 @@
   }
 
   .card-badges {
-    bottom: auto;
-    top: 2.15rem;
+    top: auto;
+    bottom: 0.55rem;
   }
 
   /* Prefer active feedback over sticky :hover */

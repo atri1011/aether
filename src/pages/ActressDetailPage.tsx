@@ -136,6 +136,32 @@ export function ActressDetailPage() {
     setAvatarBroken(false)
   }, [slug, locale])
 
+  // Kick fourhoi CDN as soon as page-1 JSON arrives (MissAV ships <img> in HTML;
+  // SPA must start the same CDN fetches the moment coverUrl is known).
+  const coverWarmKey = useMemo(
+    () =>
+      items
+        .slice(0, 12)
+        .map((it) => it.coverUrl || '')
+        .filter(Boolean)
+        .join('\n'),
+    [items],
+  )
+  useEffect(() => {
+    if (!coverWarmKey || typeof window === 'undefined') return
+    const loaders: HTMLImageElement[] = []
+    for (const url of coverWarmKey.split('\n')) {
+      const img = new Image()
+      img.referrerPolicy = 'no-referrer'
+      img.decoding = 'async'
+      img.src = url
+      loaders.push(img)
+    }
+    return () => {
+      for (const img of loaders) img.src = ''
+    }
+  }, [coverWarmKey])
+
   const name = profile?.name || slug
   const stats = profile?.stats
   const avatarUrl = useMemo(() => avatarFromProfile(profile), [profile])
@@ -206,7 +232,12 @@ export function ActressDetailPage() {
           <h2>{tr('actressWorks')}</h2>
           <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
         </div>
-        <VideoFilterBar options={filterOptions} value={query} onChange={setQuery} />
+        <VideoFilterBar
+          options={filterOptions}
+          value={query}
+          onChange={setQuery}
+          defaultSort="released_at"
+        />
         {loading && !items.length && <VideoSkeletonGrid count={12} />}
         {error && !items.length && (
           <div className="state error" style={{ display: 'grid', gap: '0.75rem', justifyItems: 'start' }}>

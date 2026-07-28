@@ -176,23 +176,26 @@ export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: n
         <img
           src={video.coverUrl}
           alt={title}
-          // Size win is cover-t (~34KB). Eager first row so titles+covers appear together.
-          loading={index < 6 ? 'eager' : 'lazy'}
+          // MissAV-style: first page (~12) eagers so the whole grid paints with HTML;
+          // below-fold stays lazy. cover-t is ~34KB (same CDN asset MissAV uses).
+          loading={index < 12 ? 'eager' : 'lazy'}
           decoding="async"
-          fetchPriority={index < 2 ? 'high' : 'auto'}
+          fetchPriority={index < 4 ? 'high' : index < 12 ? 'low' : 'auto'}
           width={330}
           height={222}
+          sizes="(max-width: 640px) 46vw, (max-width: 1100px) 22vw, 200px"
           referrerPolicy="no-referrer"
           onError={(e) => {
             const el = e.currentTarget
             const step = Number(el.dataset.fb || '0')
             const code = mediaCode(video.id)
-            // Prefer thumbs; only escalate to cover-n / DMM if t is missing
+            // Stay on small thumbs as long as possible — cover-n is ~5× heavier.
             const chain = [
               video.coverUrl.includes('cover-n.jpg')
                 ? video.coverUrl.replace('cover-n.jpg', 'cover-t.jpg')
                 : null,
               `https://fourhoi.com/${code}/cover-t.jpg`,
+              // Last resorts only (missing cover-t)
               `https://fourhoi.com/${code}/cover-n.jpg`,
               `https://pics.dmm.co.jp/mono/movie/adult/${code}/${code}ps.jpg`,
             ].filter((u): u is string => Boolean(u) && u !== el.src)

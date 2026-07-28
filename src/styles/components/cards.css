@@ -153,6 +153,11 @@
 .card-meta .card-sub {
   font-size: 0.7rem;
   color: var(--ink-dim);
+  /* Leave room for bottom-right 无码/中文 badges on the same row */
+  padding-right: 3.6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Richer hover overlay (desktop) */
@@ -201,6 +206,10 @@
 .card-overlay .card-sub {
   font-size: 0.72rem;
   color: var(--ink-dim);
+  padding-right: 3.6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .card-play {
@@ -282,11 +291,11 @@
   color: var(--ink);
 }
 
-/* MissAV-style content tags — sit above title meta so mobile overlay doesn't collide */
+/* MissAV-style content tags — cover bottom-right, level with actress name */
 .card-badges {
   position: absolute;
-  right: 0.4rem;
-  bottom: 3.55rem;
+  right: 0.55rem;
+  bottom: 0.65rem;
   z-index: 5;
   display: flex;
   flex-direction: row;
