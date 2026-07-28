@@ -76,7 +76,7 @@ export const config = {
   hlsStreamingEnabled: envFlag('HLS_STREAMING', true),
   videoLazyStream: envFlag('VIDEO_LAZY_STREAM', true),
   scrapePort: Number(process.env.SCRAPE_PORT || 18791),
-  scrapeConcurrency: Math.max(1, Number(process.env.SCRAPE_CONCURRENCY) || 2),
+  scrapeConcurrency: Math.max(1, Number(process.env.SCRAPE_CONCURRENCY) || 3),
   mediaPort: Number(process.env.MEDIA_PORT || 18790),
   adminToken: process.env.ADMIN_TOKEN || '',
   ttl: {

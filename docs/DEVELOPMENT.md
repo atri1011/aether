@@ -378,10 +378,10 @@ GET  /api/actresses/:slug
 
 ### 9.4 女优详情
 
-1. `scrape_actresses.py` detail 模式（profile + 作品页）
-2. 空列表时回退 `scrape_list` `actresses/{slug}`
-3. 分页用 scrape 的 `hasMore` / `maxPage`，**不要**用去重后条数 < 12 误判结束
-4. 翻页时保留 hero `avatarUrl`（后续页 HTML 可能没有头像）
+1. **作品快路径**：Recombee `search` + `"女优名" in 'actresses'`（`services/actressWorks.js`）
+2. **头像 seed**：列表/搜索卡 `location.state` + query `name`/`actressId`/`avatarUrl`；`ensureActressAvatar` 用 id 补 fourhoi URL
+3. Recombee 空或 individual/multiple → scrape detail → `scrape_list` 回退
+4. 分页以数据源 `hasMore` 为准；翻页合并时**不得**用空 `avatarUrl` 覆盖已有头像
 
 ---
 

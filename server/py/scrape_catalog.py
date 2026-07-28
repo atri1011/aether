@@ -18,6 +18,8 @@ except ImportError:
     print(json.dumps({"ok": False, "error": "curl_cffi not installed"}))
     sys.exit(2)
 
+from curl_opts import CURL_OPTS  # type: ignore
+
 KINDS = {"genres", "makers"}
 
 DEFAULT_HEADERS = {
@@ -193,6 +195,8 @@ def scrape(kind: str, page: int = 1, locale: str = "zh") -> dict:
                     **DEFAULT_HEADERS,
                     "Referer": f"https://missav.ai/{site_locale(locale)}/{kind}",
                 },
+                # Force IPv4 — dual-stack CF AAAA often RST (curl 35) on CN paths
+                curl_options=CURL_OPTS or None,
             )
         except Exception as e:
             last = {

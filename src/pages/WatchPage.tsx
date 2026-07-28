@@ -29,10 +29,15 @@ function DetailMetaLinks({
   items,
   to,
   sep,
+  seedActress = false,
+  locale,
 }: {
   items?: string[]
   to: (name: string) => string
   sep: string
+  /** Carry name into actress detail so Recombee can match works (portrait may still be empty). */
+  seedActress?: boolean
+  locale?: 'zh' | 'en'
 }) {
   const list = (items || []).map((s) => String(s || '').trim()).filter(Boolean)
   if (!list.length) return '—'
@@ -41,7 +46,25 @@ function DetailMetaLinks({
       {list.map((name, i) => (
         <span key={`${name}-${i}`}>
           {i > 0 ? sep : null}
-          <Link className="detail-meta-link" to={to(name)}>
+          <Link
+            className="detail-meta-link"
+            to={to(name)}
+            state={
+              seedActress
+                ? { actress: { name, slug: name, avatarUrl: '' } }
+                : undefined
+            }
+            onPointerDown={
+              seedActress && locale
+                ? () => {
+                    api.prefetchActressDetail(name, locale, undefined, {
+                      name,
+                      avatarUrl: '',
+                    })
+                  }
+                : undefined
+            }
+          >
             {name}
           </Link>
         </span>
@@ -241,7 +264,13 @@ export function WatchPage() {
             <div>
               <dt>{tr('actresses')}</dt>
               <dd>
-                <DetailMetaLinks items={video.actresses} to={actressPath} sep=" / " />
+                <DetailMetaLinks
+                  items={video.actresses}
+                  to={actressPath}
+                  sep=" / "
+                  seedActress
+                  locale={locale}
+                />
               </dd>
             </div>
             <div>

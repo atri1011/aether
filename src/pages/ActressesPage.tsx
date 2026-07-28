@@ -60,18 +60,36 @@ export function ActressesPage() {
 
   const loadPage = useCallback(
     async (pageNum: number, append: boolean) => {
+      const isBusyErr = (e: unknown) => {
+        const err = e as Error & { status?: number; code?: string }
+        const msg = String(err?.message || e || '')
+        return (
+          err?.status === 503 ||
+          err?.code === 'UPSTREAM' ||
+          /scrape busy|blocked|upstream|timeout|403|503|429/i.test(msg)
+        )
+      }
+
       if (isRanking) {
         if (pageNum > 1) return
         setLoading(true)
         setError(null)
         try {
-          const d = await api.actressRanking(locale)
+          let d: Awaited<ReturnType<typeof api.actressRanking>>
+          try {
+            d = await api.actressRanking(locale)
+          } catch (e) {
+            if (!isBusyErr(e)) throw e
+            await new Promise((r) => setTimeout(r, 1200))
+            d = await api.actressRanking(locale)
+          }
           setTitle(d.title || tr('actressRanking'))
           setItems(d.items || [])
           setPage(1)
           setHasMore(false)
         } catch (e) {
-          setError(e instanceof Error ? e.message : String(e))
+          const msg = e instanceof Error ? e.message : String(e)
+          setError(isBusyErr(e) ? tr('actressUpstreamRetry') : msg)
           setItems([])
           setHasMore(false)
         } finally {
@@ -86,7 +104,14 @@ export function ActressesPage() {
         setError(null)
       }
       try {
-        const d = await api.actresses(locale, pageNum, filters)
+        let d: Awaited<ReturnType<typeof api.actresses>>
+        try {
+          d = await api.actresses(locale, pageNum, filters)
+        } catch (e) {
+          if (!isBusyErr(e) || append) throw e
+          await new Promise((r) => setTimeout(r, 1200))
+          d = await api.actresses(locale, pageNum, filters)
+        }
         if (d.filterOptions) setFilterOptions(d.filterOptions)
         setTitle(tr('actressList'))
         setItems((prev) => {
@@ -104,7 +129,8 @@ export function ActressesPage() {
         setPage(pageNum)
         setHasMore(typeof d.hasMore === 'boolean' ? d.hasMore : (d.items?.length || 0) >= 20)
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
+        const msg = e instanceof Error ? e.message : String(e)
+        setError(isBusyErr(e) ? tr('actressUpstreamRetry') : msg)
         if (!append) {
           setItems([])
           setHasMore(false)

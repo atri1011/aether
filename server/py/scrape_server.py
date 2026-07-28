@@ -20,10 +20,15 @@ from urllib.parse import unquote
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 18791
 CONCURRENCY = int(sys.argv[2]) if len(sys.argv) > 2 else 2
+# Wait for a free slot instead of instant 503 (actress list vs boot warm).
+QUEUE_WAIT_SEC = 25.0
 try:
     import os
 
     CONCURRENCY = max(1, int(os.environ.get("SCRAPE_CONCURRENCY", CONCURRENCY)))
+    QUEUE_WAIT_SEC = max(
+        5.0, float(os.environ.get("SCRAPE_QUEUE_WAIT", QUEUE_WAIT_SEC))
+    )
 except Exception:
     CONCURRENCY = max(1, CONCURRENCY)
 
@@ -162,6 +167,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "service": "aether-scrape",
                     "concurrency": CONCURRENCY,
+                    "queueWaitSec": QUEUE_WAIT_SEC,
                 },
             )
             return
@@ -182,13 +188,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"ok": False, "error": "invalid json"})
             return
 
-        acquired = _sem.acquire(blocking=False)
+        acquired = _sem.acquire(blocking=True, timeout=QUEUE_WAIT_SEC)
         if not acquired:
             self.send_response(503)
             retry = b'{"ok":false,"error":"scrape busy","code":"SCRAPE_BUSY"}'
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(retry)))
-            self.send_header("Retry-After", "2")
+            self.send_header("Retry-After", "3")
             self.end_headers()
             self.wfile.write(retry)
             return
@@ -214,7 +220,8 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(
-        f"[aether-scrape] listening on 127.0.0.1:{PORT} concurrency={CONCURRENCY}",
+        f"[aether-scrape] listening on 127.0.0.1:{PORT} "
+        f"concurrency={CONCURRENCY} queue_wait={QUEUE_WAIT_SEC}s",
         flush=True,
     )
     try:

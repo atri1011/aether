@@ -21,6 +21,8 @@ except ImportError:
     print(json.dumps({"ok": False, "error": "curl_cffi not installed"}))
     sys.exit(2)
 
+from curl_opts import CURL_OPTS  # type: ignore
+
 # Persist last-good host/path patterns so cold scrapes try winners first.
 _WINNER_FILE = Path(__file__).resolve().parent.parent.parent / ".cache" / "aether" / "scrape-url-winners.json"
 _winner_hosts: list[str] = []
@@ -569,6 +571,8 @@ def scrape(
                     timeout=timeout,
                     allow_redirects=True,
                     headers=_headers,
+                    # Force IPv4 — dual-stack CF AAAA often RST (curl 35) on CN paths
+                    curl_options=CURL_OPTS or None,
                 )
             except Exception as e:
                 last_err = str(e)

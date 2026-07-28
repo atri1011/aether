@@ -87,7 +87,7 @@ export async function ensureScrapeWorker() {
  * @param {object} body
  * @param {{ timeoutMs?: number }} [opts]
  */
-export async function scrapeRpc(rpcPath, body, { timeoutMs = 50000 } = {}) {
+export async function scrapeRpc(rpcPath, body, { timeoutMs = 75000 } = {}) {
   const ok = await ensureScrapeWorker()
   if (!ok) {
     const err = new Error('scrape worker unavailable')

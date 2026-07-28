@@ -15,6 +15,11 @@ import {
 } from '../pybridge.js'
 import { withCache } from '../services/cacheWrap.js'
 import { mapScrapeItems } from '../services/scrapeMap.js'
+import {
+  canUseRecombeeActressWorks,
+  ensureActressAvatar,
+  loadActressWorksFromRecombee,
+} from '../services/actressWorks.js'
 import { localeOf, qStr } from '../util/locale.js'
 import { sendError } from '../util/sendError.js'
 
@@ -89,10 +94,11 @@ router.get('/api/actresses/ranking', async (req, res) => {
         err.details = scraped
         throw err
       }
+      const items = (scraped.items || []).map((it) => ensureActressAvatar(it))
       return {
         title: scraped.title || (locale === 'en' ? 'Actress Ranking' : '女优排行'),
-        items: scraped.items || [],
-        count: scraped.count || (scraped.items || []).length,
+        items,
+        count: scraped.count || items.length,
         mode: 'ranking',
         source: 'scrape',
         url: scraped.url,
@@ -131,12 +137,14 @@ router.get('/api/actresses', async (req, res) => {
         const err = new Error(
           /status 403/i.test(String(msg))
             ? 'actress list blocked by upstream (try again or clear filters)'
-            : msg,
+            : /curl:\s*\(35\)|Connection was reset|Recv failure/i.test(String(msg))
+              ? 'actress list upstream connection reset (retry)'
+              : msg,
         )
         err.details = scraped
         throw err
       }
-      const items = scraped.items || []
+      const items = (scraped.items || []).map((it) => ensureActressAvatar(it))
       return {
         items,
         page,
@@ -173,7 +181,9 @@ router.get('/api/actresses/search', async (req, res) => {
     const { data, cache } = await withCache(key, config.ttl.browse, async () => {
       try {
         const scraped = await pyScrapeActressesSearch({ q, locale, limit })
-        const items = scraped?.ok ? scraped.items || [] : []
+        const items = (scraped?.ok ? scraped.items || [] : []).map((it) =>
+          ensureActressAvatar(it),
+        )
         return {
           query: q,
           items,
@@ -209,10 +219,11 @@ router.get('/api/actresses/search', async (req, res) => {
 
 function mergeActressFields(base, next, slug) {
   if (!next) return base
-  return {
+  return ensureActressAvatar({
     ...base,
     ...next,
     slug: next.slug || base.slug || slug,
+    // Never let an empty scrape/recombee shell wipe a good seed portrait.
     avatarUrl: next.avatarUrl || base.avatarUrl || '',
     actressId: next.actressId || base.actressId || '',
     name:
@@ -225,7 +236,9 @@ function mergeActressFields(base, next, slug) {
     birthday: next.birthday || base.birthday || null,
     age: next.age != null ? next.age : base.age,
     videoCount: next.videoCount != null ? next.videoCount : base.videoCount,
-  }
+    debutYear: next.debutYear != null ? next.debutYear : base.debutYear,
+    rank: next.rank != null ? next.rank : base.rank,
+  })
 }
 
 function hasActressProfile(actress) {
@@ -240,7 +253,7 @@ function hasActressProfile(actress) {
 }
 
 function isTransientActressErr(msg) {
-  return /status 403|status 503|status 429|challenge|no candidate|no items parsed|scrape busy|timeout|ECONN|fetch failed/i.test(
+  return /status 403|status 503|status 429|challenge|no candidate|no items parsed|scrape busy|timeout|ECONN|fetch failed|curl:\s*\(35\)|Connection was reset|Recv failure|SSLError/i.test(
     String(msg || ''),
   )
 }
@@ -266,25 +279,33 @@ router.get('/api/actresses/:slug', async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1)
   const filters = sanitizeVideoFilter(req.query.filters || req.query.filter)
   const sort = sanitizeVideoSort(req.query.sort, DEFAULT_SORT.actress)
-  // v12: MissAV-style first paint + do not stick empty non-default sort shells in cache.
-  // Cover URLs + duration badges come from list HTML; actress name is filled from profile.
-  const key = `actresses:detail:v12:${locale}:${slug}:${page}:${filters}:${sort}`
+  // List/search cards pass these so Recombee path still has a portrait.
+  const nameHint = String(req.query.name || '').trim()
+  const actressIdHint = String(req.query.actressId || '').trim()
+  const avatarHint = String(req.query.avatarUrl || '').trim()
+  // v15: CJK-first Recombee (≤2 RTT) + delayed scrape race; release-date sort on RB pool.
+  const key = `actresses:detail:v15:${locale}:${slug}:${nameHint}:${actressIdHint}:${page}:${filters}:${sort}`
   const isDefaultListing = !filters && (!sort || sort === DEFAULT_SORT.actress)
   try {
     const { data, cache } = await withCache(
       key,
       config.ttl.browse,
       async () => {
-      let actress = { slug, name: slug }
+      let actress = ensureActressAvatar({
+        slug,
+        name: nameHint || slug,
+        avatarUrl: avatarHint || '',
+        actressId: actressIdHint || '',
+      })
       let items = []
       let source = 'scrape'
       let url
       let lastErr = null
       let hasMore = false
       let maxPage = page
+      let recommId
 
-      // Pure scrape → DTO. Do NOT await Recombee here: enrich used to add 0.5–2s
-      // before any coverUrl reached the browser (MissAV ships covers in HTML immediately).
+      // Pure scrape → DTO (covers in HTML). Recombee path uses map covers.
       const toSummaries = (rawItems) => mapScrapeItems(rawItems)
 
       const applyDetail = async (detail, sourceTag) => {
@@ -314,15 +335,115 @@ router.get('/api/actresses/:slug', async (req, res) => {
         return Boolean(items.length || hasActressProfile(actress))
       }
 
-      // Attempt 1: full detail scrape (Python omits default released_at sort).
-      try {
-        const detail = await pyScrapeActressDetail(slug, page, locale, {
+      const applyRecombee = (rb) => {
+        if (!rb?.items?.length) return false
+        items = rb.items
+        hasMore = Boolean(rb.hasMore)
+        maxPage = rb.maxPage || page
+        source = rb.source || 'recombee'
+        recommId = rb.recommId
+        lastErr = null
+        if (rb.matchedName) {
+          actress = mergeActressFields(actress, { name: rb.matchedName }, slug)
+        }
+        const stamp = actress.name || nameHint || slug
+        if (stamp) {
+          items = items.map((it) =>
+            it.actresses?.length ? it : { ...it, actresses: [stamp] },
+          )
+        }
+        return true
+      }
+
+      /**
+       * MissAV: one SSR HTML with works. We approximate:
+       * 1) Recombee name search (fast, ~0.7–1.5s when CJK hint present)
+       * 2) Delayed scrape overlap only when Recombee is likely slow/miss
+       *    (romaji-only / no CJK) — CJK hits must NOT start CF scrape at all.
+       * 3) Recombee hit cancels the delayed kick-off.
+       */
+      const useRecombee = canUseRecombeeActressWorks(filters)
+      const hasCjkSignal = /[\u3040-\u30ff\u3400-\u9fff]/.test(
+        `${nameHint || ''} ${slug || ''}`,
+      )
+      // CJK path almost always finishes <2s — don't burn scrape worker.
+      // Romaji-only: start scrape sooner so a miss doesn't serialize full wait.
+      const RB_SCRAPE_DELAY_MS = hasCjkSignal ? 2800 : 700
+      let scrapeLaunch = null
+      const launchScrape = () => {
+        if (!scrapeLaunch) {
+          scrapeLaunch = pyScrapeActressDetail(slug, page, locale, {
+            sort,
+            filter: filters,
+          }).catch((e) => ({
+            ok: false,
+            error: e?.message || 'actress detail scrape failed',
+          }))
+        }
+        return scrapeLaunch
+      }
+
+      if (useRecombee) {
+        const rbPromise = loadActressWorksFromRecombee({
+          slug,
+          nameHint: nameHint || slug,
+          locale,
+          page,
+          pageSize: 12,
+          filters,
           sort,
-          filter: filters,
+        }).catch(() => null)
+
+        let delayTimer = null
+        const delayKick = new Promise((resolve) => {
+          delayTimer = setTimeout(() => {
+            launchScrape()
+            resolve('scrape-kicked')
+          }, RB_SCRAPE_DELAY_MS)
         })
-        await applyDetail(detail)
-      } catch (e) {
-        lastErr = e.message || 'actress detail scrape failed'
+
+        let rb = null
+        try {
+          rb = await rbPromise
+        } finally {
+          if (delayTimer) clearTimeout(delayTimer)
+        }
+        void delayKick
+
+        if (applyRecombee(rb)) {
+          // Works ready — do not await scrape (seed portrait covers hero).
+        } else if (rb && page > 1 && Array.isArray(rb.items) && !rb.items.length) {
+          return {
+            actress: ensureActressAvatar(actress),
+            items: [],
+            page,
+            pageSize: 12,
+            hasMore: false,
+            maxPage: page,
+            filters,
+            sort,
+            filterOptions: localizeVideoFilters(locale),
+            source: 'recombee',
+            recommId: rb.recommId,
+          }
+        } else if (!items.length) {
+          try {
+            const detail = await launchScrape()
+            await applyDetail(detail)
+          } catch (e) {
+            lastErr = e.message || 'actress detail scrape failed'
+          }
+        }
+      }
+
+      // Attempt 1: full detail scrape when Recombee path skipped (non-RB filters).
+      if (!items.length && !useRecombee) {
+        try {
+          const detail = await launchScrape()
+          await applyDetail(detail)
+        } catch (e) {
+          lastErr = e.message || 'actress detail scrape failed'
+        }
       }
 
       // Attempt 2: short cool-down + plain page-only (transient CF soft-blocks).
@@ -479,6 +600,8 @@ router.get('/api/actresses/:slug', async (req, res) => {
 
       if (!items.length) hasMore = false
 
+      actress = ensureActressAvatar(actress)
+
       return {
         actress,
         items,
@@ -491,10 +614,12 @@ router.get('/api/actresses/:slug', async (req, res) => {
         filterOptions: localizeVideoFilters(locale),
         source,
         url,
+        recommId,
       }
     },
       {
         // Never persist empty non-default sort/filter responses (15min sticky miss).
+        // Prefer entries that still carry a portrait when seed/scrape provided one.
         shouldCache: (d) =>
           Boolean(d?.items?.length) || (isDefaultListing && hasActressProfile(d?.actress)),
       },

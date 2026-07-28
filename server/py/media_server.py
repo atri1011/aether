@@ -20,6 +20,8 @@ except ImportError:
     print("curl_cffi required", file=sys.stderr)
     sys.exit(2)
 
+from curl_opts import CURL_OPTS  # type: ignore
+
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8790
 SESSION = requests.Session()
 # Prefer chrome124 — aligns with list/resolve scrapers (OPT-18); chrome131 often CF-challenged on MissAV origin headers.
@@ -91,6 +93,8 @@ class Handler(BaseHTTPRequestHandler):
                     timeout=40,
                     allow_redirects=True,
                     stream=True,
+                    # Force IPv4 — dual-stack CF AAAA often RST (curl 35) on CN paths
+                    curl_options=CURL_OPTS or None,
                 )
                 ctype = r.headers.get("content-type") or "application/octet-stream"
                 status = int(r.status_code or 502)
@@ -153,6 +157,8 @@ class Handler(BaseHTTPRequestHandler):
                 headers=HEADERS,
                 timeout=40,
                 allow_redirects=True,
+                # Force IPv4 — dual-stack CF AAAA often RST (curl 35) on CN paths
+                curl_options=CURL_OPTS or None,
             )
             ctype = r.headers.get("content-type") or "application/octet-stream"
             if r.status_code != 200:

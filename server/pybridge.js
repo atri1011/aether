@@ -77,12 +77,12 @@ export function shouldSpawnOnScrapeError(err) {
 
 /** Jittered backoff for busy retries (ms). Exported for unit tests. */
 export function busyRetryDelayMs(attempt) {
-  const base = 120 + attempt * 180
-  const jitter = Math.floor(Math.random() * 100)
-  return base + jitter
+  const base = 500 + attempt * 700
+  const jitter = Math.floor(Math.random() * 250)
+  return Math.min(base + jitter, 5000)
 }
 
-const BUSY_MAX_RETRIES = 3
+const BUSY_MAX_RETRIES = 8
 
 async function withWorker(rpcPath, body, fallback) {
   if (config.scrapeWorkerEnabled) {

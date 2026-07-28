@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { api } from '../lib/api'
-import type { ActressProfile, VideoFilterOptions, VideoSummary } from '../types'
+import { Link, useLocation, useParams } from 'react-router-dom'
+import { api, resolveActressAvatar } from '../lib/api'
+import type { ActressProfile, ActressSummary, VideoFilterOptions, VideoSummary } from '../types'
 import { useLocale } from '../context'
 import { VideoGrid } from '../components/VideoGrid'
 import { InfiniteSentinel } from '../components/InfiniteSentinel'
@@ -14,6 +14,7 @@ import { VideoSkeletonGrid } from '../components/Skeleton'
  *
  * MissAV only embeds the portrait on page 1. Infinite scroll page 2+ returns
  * actress={name, avatarUrl:""} and used to wipe the hero avatar.
+ * Recombee works path also returns thin actress shells — keep seed portrait.
  */
 function mergeActressProfile(
   prev: ActressProfile | null,
@@ -44,15 +45,9 @@ function mergeActressProfile(
   }
 }
 
-function avatarFromProfile(profile: ActressProfile | null): string {
-  if (!profile) return ''
-  if (profile.avatarUrl) return profile.avatarUrl
-  if (profile.actressId) return `https://fourhoi.com/actress/${profile.actressId}-t.jpg`
-  return ''
-}
-
 export function ActressDetailPage() {
   const { slug: rawSlug = '' } = useParams()
+  const location = useLocation()
   // React Router may leave one layer of encoding; peel safely (never throw on bad %).
   const slug = (() => {
     let s = String(rawSlug || '').trim()
@@ -67,8 +62,29 @@ export function ActressDetailPage() {
     }
     return s.trim()
   })()
+
+  // Instant hero from list/search card — do not wait for API / scrape.
+  const navSeed = useMemo(() => {
+    const raw = (location.state as { actress?: Partial<ActressSummary> } | null)?.actress
+    if (!raw) return null
+    const name = String(raw.name || '').trim()
+    const actressId = String(raw.actressId || '').trim()
+    const avatarUrl = resolveActressAvatar({
+      avatarUrl: raw.avatarUrl || '',
+      actressId: actressId || undefined,
+    })
+    if (!name && !actressId && !avatarUrl) return null
+    const seed: ActressProfile = {
+      slug,
+      name: name || slug,
+      avatarUrl: avatarUrl || '',
+    }
+    if (actressId) seed.actressId = actressId
+    return seed
+  }, [location.state, slug])
+
   const { locale, tr } = useLocale()
-  const [profile, setProfile] = useState<ActressProfile | null>(null)
+  const [profile, setProfile] = useState<ActressProfile | null>(navSeed)
   const [avatarBroken, setAvatarBroken] = useState(false)
   const [filterOptions, setFilterOptions] = useState<VideoFilterOptions | null>(null)
   const { query, setQuery } = useVideoListQuery({ sort: 'released_at' })
@@ -88,13 +104,20 @@ export function ActressDetailPage() {
 
   const loader = useCallback(
     async (page: number, signal: AbortSignal) => {
-      const loadOnce = () => api.actressDetail(slug, locale, page, query, { signal })
+      const seed = navSeed
+        ? {
+            name: navSeed.name,
+            actressId: navSeed.actressId,
+            avatarUrl: navSeed.avatarUrl || '',
+          }
+        : slug
+          ? { name: slug, avatarUrl: '' }
+          : null
+      const loadOnce = () => api.actressDetail(slug, locale, page, query, { signal, seed })
       let d: Awaited<ReturnType<typeof loadOnce>>
       try {
         d = await loadOnce()
       } catch (e) {
-        // One client-side retry for transient CF / worker busy (503 UPSTREAM).
-        // True NOT_FOUND (404) must not loop.
         const err = e as Error & { code?: string; status?: number }
         const retryable =
           page <= 1 &&
@@ -108,7 +131,6 @@ export function ActressDetailPage() {
         d = await loadOnce()
       }
       if (d.actress) {
-        // Never replace a rich page-1 profile with a bare page-N shell.
         setProfile((prev) => mergeActressProfile(prev, d.actress))
       }
       if (d.filterOptions) setFilterOptions(d.filterOptions)
@@ -121,7 +143,7 @@ export function ActressDetailPage() {
         hasMore,
       }
     },
-    [slug, locale, query],
+    [slug, locale, query, navSeed],
   )
 
   const { items, loading, loadingMore, error, hasMore, loadMore, reload } = usePagedList(loader, [
@@ -132,12 +154,12 @@ export function ActressDetailPage() {
   ])
 
   useEffect(() => {
-    setProfile(null)
+    // Keep nav seed so hero does not flash empty while API loads.
+    setProfile(navSeed)
     setAvatarBroken(false)
-  }, [slug, locale])
+  }, [slug, locale, navSeed])
 
-  // Kick fourhoi CDN as soon as page-1 JSON arrives (MissAV ships <img> in HTML;
-  // SPA must start the same CDN fetches the moment coverUrl is known).
+  // Kick fourhoi CDN as soon as page-1 JSON arrives.
   const coverWarmKey = useMemo(
     () =>
       items
@@ -164,9 +186,8 @@ export function ActressDetailPage() {
 
   const name = profile?.name || slug
   const stats = profile?.stats
-  const avatarUrl = useMemo(() => avatarFromProfile(profile), [profile])
+  const avatarUrl = useMemo(() => resolveActressAvatar(profile), [profile])
 
-  // New avatar URL (e.g. page-1 load) should clear a prior broken state.
   useEffect(() => {
     setAvatarBroken(false)
   }, [avatarUrl])
@@ -182,7 +203,6 @@ export function ActressDetailPage() {
               referrerPolicy="no-referrer"
               onError={(e) => {
                 const el = e.currentTarget
-                // One retry via actressId CDN path (search rail style).
                 if (profile?.actressId && !el.dataset.fb) {
                   el.dataset.fb = '1'
                   el.src = `https://fourhoi.com/actress/${profile.actressId}-t.jpg`
@@ -240,39 +260,30 @@ export function ActressDetailPage() {
         />
         {loading && !items.length && <VideoSkeletonGrid count={12} />}
         {error && !items.length && (
-          <div className="state error" style={{ display: 'grid', gap: '0.75rem', justifyItems: 'start' }}>
-            <span>
-              {/blocked|busy|timeout|403|503|429|upstream/i.test(error)
-                ? tr('actressUpstreamRetry')
-                : error}
-            </span>
-            <button type="button" className="chip" onClick={() => void reload()}>
-              {tr('retry')}
-            </button>
+          <div className="state error">
+            {/blocked|busy|timeout|403|503|429|upstream/i.test(error)
+              ? tr('actressUpstreamRetry')
+              : error}
+            <div style={{ marginTop: '0.75rem' }}>
+              <button type="button" className="btn" onClick={() => reload()}>
+                {tr('retry')}
+              </button>
+            </div>
           </div>
         )}
-        {/* Keep existing cards visible while loading more / after a page-N error.
-            The old `!(!loading && !error)` gate hid the whole grid once loadMore
-            set `error`, so scrolling for page 2 made every video "disappear". */}
-        {items.length > 0 ? (
-          <>
-            <VideoGrid items={items} />
-            {error && <div className="state error">{error}</div>}
-            <InfiniteSentinel
-              onVisible={loadMore}
-              disabled={!hasMore || loading}
-              loading={loadingMore}
-              label={tr('loadMore')}
-              loadingLabel={tr('loadingMore')}
-            />
-            {!hasMore && !loading && (
-              <div className="state" style={{ padding: '1.25rem' }}>
-                {tr('endOfList')}
-              </div>
-            )}
-          </>
-        ) : (
-          !loading && !error && <div className="state">{tr('empty')}</div>
+        {!loading && !error && !items.length && <div className="state">{tr('empty')}</div>}
+        {items.length > 0 && <VideoGrid items={items} />}
+        <InfiniteSentinel
+          onVisible={loadMore}
+          disabled={!hasMore}
+          loading={loadingMore}
+          label={tr('loadMore')}
+          loadingLabel={tr('loadingMore')}
+        />
+        {!hasMore && items.length > 0 && (
+          <div className="state" style={{ padding: '1.25rem' }}>
+            {tr('endOfList')}
+          </div>
         )}
       </section>
     </>

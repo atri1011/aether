@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { Link } from 'react-router-dom'
 import type { ActressSummary } from '../types'
 import { useLocale } from '../context'
-import { api } from '../lib/api'
+import { api, resolveActressAvatar } from '../lib/api'
 
 /**
  * Dense grids must NOT prefetch on hover/touch-move — that burned the scrape
@@ -21,11 +21,18 @@ export function ActressCard({
   // CJK names (%E4… → %25E4…) and breaks /api/actresses/:slug after one decode.
   const to = `/actress/${actress.slug}`
   const prefetched = useRef(false)
+  const avatarSrc = resolveActressAvatar(actress)
+  const seed = {
+    name: actress.name,
+    actressId: actress.actressId,
+    avatarUrl: avatarSrc || actress.avatarUrl || '',
+  }
 
   const onPointerDown = () => {
     if (prefetched.current || !actress.slug) return
     prefetched.current = true
-    api.prefetchActressDetail(actress.slug, locale)
+    // Pass portrait seed so detail Recombee path still shows hero avatar.
+    api.prefetchActressDetail(actress.slug, locale, undefined, seed)
   }
 
   const subParts: string[] = []
@@ -45,25 +52,31 @@ export function ActressCard({
     <Link
       className="actress-card"
       to={to}
+      state={{ actress: { ...seed, slug: actress.slug } }}
       style={{ ['--i' as string]: Math.min(index, 12) }}
       onPointerDown={onPointerDown}
     >
       <div className="actress-avatar">
         {actress.rank != null && <span className="actress-rank">#{actress.rank}</span>}
-        <img
-          src={actress.avatarUrl}
-          alt={actress.name}
-          loading="lazy"
-          decoding="async"
-          referrerPolicy="no-referrer"
-          onError={(e) => {
-            const el = e.currentTarget
-            if (actress.actressId && !el.dataset.fb) {
-              el.dataset.fb = '1'
-              el.src = `https://fourhoi.com/actress/${actress.actressId}-t.jpg`
-            }
-          }}
-        />
+        {avatarSrc ? (
+          <img
+            src={avatarSrc}
+            alt={actress.name}
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              const el = e.currentTarget
+              if (actress.actressId && !el.dataset.fb) {
+                el.dataset.fb = '1'
+                el.src = `https://fourhoi.com/actress/${actress.actressId}-t.jpg`
+                return
+              }
+              // Hide broken icon — keep circle placeholder background.
+              el.style.display = 'none'
+            }}
+          />
+        ) : null}
       </div>
       <div className="actress-name">{actress.name}</div>
       {subParts.length > 0 && <div className="actress-sub">{subParts.join(' · ')}</div>}

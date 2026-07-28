@@ -10,6 +10,8 @@ except ImportError:
     sys.stderr.write("curl_cffi missing\n")
     sys.exit(2)
 
+from curl_opts import CURL_OPTS  # type: ignore
+
 
 def main():
     if len(sys.argv) < 2:
@@ -28,6 +30,8 @@ def main():
             "Accept-Language": "en-US,en;q=0.9",
         },
         allow_redirects=True,
+        # Force IPv4 — dual-stack CF AAAA often RST (curl 35) on CN paths
+        curl_options=CURL_OPTS or None,
     )
     # write status on stderr for node
     sys.stderr.write(f"STATUS {r.status_code}\n")

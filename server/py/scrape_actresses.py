@@ -13,6 +13,8 @@ except ImportError:
     print(json.dumps({"ok": False, "error": "curl_cffi not installed"}))
     sys.exit(2)
 
+from curl_opts import CURL_OPTS  # type: ignore
+
 # Reuse video-list parser helpers from scrape_list
 from scrape_list import (  # type: ignore
     SKIP,
@@ -518,6 +520,8 @@ def _http_get(url: str, *, retries: int = 1):
                     timeout=30,
                     allow_redirects=True,
                     headers=headers,
+                    # Force IPv4 — dual-stack CF AAAA often RST (curl 35) on CN paths
+                    curl_options=CURL_OPTS or None,
                 )
             except Exception as e:
                 last_err = str(e)

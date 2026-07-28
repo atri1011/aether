@@ -27,8 +27,10 @@ describe('pybridge scrape busy policy (OPT-17)', () => {
   it('busy backoff grows with attempt and stays bounded', () => {
     const d0 = busyRetryDelayMs(0)
     const d2 = busyRetryDelayMs(2)
-    // base 120+0*180 .. 120+2*180 with +0..99 jitter
-    assert.ok(d0 >= 120 && d0 < 320)
-    assert.ok(d2 >= 480 && d2 < 700)
+    const d9 = busyRetryDelayMs(9)
+    // base 500+n*700 with +0..249 jitter, cap 5000
+    assert.ok(d0 >= 500 && d0 < 1000)
+    assert.ok(d2 >= 1900 && d2 < 2500)
+    assert.ok(d9 <= 5000)
   })
 })

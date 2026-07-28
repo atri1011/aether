@@ -16,6 +16,8 @@ except ImportError:
     print(json.dumps({"ok": False, "error": "curl_cffi not installed"}))
     sys.exit(2)
 
+from curl_opts import CURL_OPTS  # type: ignore
+
 
 # Prefer profiles that currently pass MissAV CF; chrome131 last (often challenged).
 IMPERSONATE_CANDIDATES = (
@@ -142,6 +144,8 @@ def _fetch_html(url: str) -> tuple[str | None, str]:
                 timeout=20,
                 allow_redirects=True,
                 headers=DEFAULT_HEADERS,
+                # Force IPv4 — dual-stack CF AAAA often RST (curl 35) on CN paths
+                curl_options=CURL_OPTS or None,
             )
         except Exception as e:
             last_err = f"{impersonate}: {e}"

@@ -320,15 +320,22 @@ export const api = {
     locale: Locale,
     page = 1,
     query?: VideoListQuery,
-    opts?: FetchOpts,
+    opts?: FetchOpts & {
+      /** From list/search card — keeps hero portrait on Recombee works path. */
+      seed?: Pick<ActressSummary, 'name' | 'actressId' | 'avatarUrl'> | null
+    },
   ) => {
     const filters = query?.filters || ''
     const sort = query?.sort || ''
+    const seed = opts?.seed
     const p = new URLSearchParams()
     p.set('locale', locale)
     p.set('page', String(page))
     if (filters) p.set('filters', filters)
     if (sort) p.set('sort', sort)
+    if (seed?.name) p.set('name', seed.name)
+    if (seed?.actressId) p.set('actressId', String(seed.actressId))
+    if (seed?.avatarUrl) p.set('avatarUrl', seed.avatarUrl)
     type ActressDetailResponse = {
       actress: ActressProfile
       items: VideoSummary[]
@@ -338,6 +345,7 @@ export const api = {
       filters?: string
       sort?: string
       filterOptions?: VideoFilterOptions
+      source?: string
     }
     const url = `/api/actresses/${encodeURIComponent(slug)}?${p.toString()}`
     // Page 1 shared with press-prefetch + revisit. Later pages stay uncached.
@@ -348,6 +356,7 @@ export const api = {
       const key = actressDetailCacheKey(slug, locale, page, filters, sort)
       return listCacheLoad(key, () => getJson<ActressDetailResponse>(url, locale), {
         signal: opts?.signal,
+        // Require works; portrait may arrive via seed merge on the client.
         cacheIf: (d) => (d.items?.length || 0) > 0,
       })
     }
@@ -355,15 +364,32 @@ export const api = {
   },
   /**
    * Press-intent page-1 warm (pointerdown on actress card — not hover).
-   * Hover prefetch on dense grids exhausts scrape rate limit (30/min).
+   * Pass seed so server/cache keep fourhoi portrait on Recombee fast path.
    */
-  prefetchActressDetail: (slug: string, locale: Locale, query?: VideoListQuery) => {
+  prefetchActressDetail: (
+    slug: string,
+    locale: Locale,
+    query?: VideoListQuery,
+    seed?: Pick<ActressSummary, 'name' | 'actressId' | 'avatarUrl'> | null,
+  ) => {
     const s = String(slug || '').trim()
     if (!s) return
     const sort = query?.sort || 'released_at'
     const filters = query?.filters || ''
-    void api.actressDetail(s, locale, 1, { sort, filters }).catch(() => {})
+    void api.actressDetail(s, locale, 1, { sort, filters }, { seed }).catch(() => {})
   },
+}
+
+/** fourhoi portrait: prefer explicit URL, else synthesize from actressId. */
+export function resolveActressAvatar(
+  a?: Pick<ActressSummary, 'avatarUrl' | 'actressId'> | null,
+): string {
+  if (!a) return ''
+  const av = String(a.avatarUrl || '').trim()
+  if (av) return av
+  const id = String(a.actressId || '').trim()
+  if (id) return `https://fourhoi.com/actress/${id}-t.jpg`
+  return ''
 }
 
 type FilterOptionLike = { value: string; label: string }
