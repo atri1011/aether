@@ -97,6 +97,17 @@
   bottom: max(5.25rem, calc(4.75rem + var(--safe-bottom, 0px)));
 }
 
+/*
+  When chrome is hidden, the whole frame is the tap target (show / hide / dbl pause).
+  Higher specificity beats theatre / :fullscreen bottom inset.
+*/
+.player-video-wrap.controls-hidden .player-hold-surface,
+.player-shell.theatre .player-video-wrap.controls-hidden .player-hold-surface,
+.player-video-wrap.controls-hidden:fullscreen .player-hold-surface,
+.player-video-wrap.controls-hidden:-webkit-full-screen .player-hold-surface {
+  bottom: 0;
+}
+
 /* Long-press 2× badge (YouTube / MissAV style) */
 .player-speed-badge {
   position: absolute;
@@ -156,15 +167,15 @@
   pointer-events: none;
 }
 
-.player-video-wrap.controls-visible .player-controls,
-.player-video-wrap.controls-hidden:hover .player-controls {
+/* Visibility is class-driven only (tap to show/hide) — no hover auto-reveal. */
+.player-video-wrap.controls-visible .player-controls {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
 }
 
-/* Keep chrome visible while paused even if class races */
-.player-controls:focus-within {
+/* Keep chrome interactive while focusing buttons / scrubber */
+.player-video-wrap.controls-visible .player-controls:focus-within {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;

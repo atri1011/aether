@@ -53,6 +53,8 @@ const SPEED_BOOST_RATE = 2
 const SPEED_BOOST_MOVE_CANCEL_PX = 14
 /** Auto-hide custom controls while playing (native-like). */
 const CONTROLS_HIDE_MS = 2800
+/** Distinguish single tap (chrome) vs double tap (play/pause). */
+const DOUBLE_TAP_MS = 280
 
 type LevelOption = {
   index: number
@@ -193,6 +195,7 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  // Chrome starts visible in-page; fullscreen entry forces hidden (tap to show).
   const [controlsVisible, setControlsVisible] = useState(true)
   // height preference persisted across videos (or -1 auto)
   const prefRef = useRef<number>(readQualityPref())
@@ -205,7 +208,14 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
   const baseRateRef = useRef(1)
   const scrubbingRef = useRef(false)
   const hideControlsTimerRef = useRef<number | null>(null)
+  const controlsVisibleRef = useRef(true)
+  const surfaceTapCountRef = useRef(0)
+  const surfaceTapTimerRef = useRef<number | null>(null)
   const [boosting, setBoosting] = useState(false)
+
+  useEffect(() => {
+    controlsVisibleRef.current = controlsVisible
+  }, [controlsVisible])
 
   const applyLevel = useCallback((hls: Hls, levelIndex: number) => {
     // currentLevel forces immediate switch; -1 re-enables ABR
@@ -262,6 +272,7 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
     hideControlsTimerRef.current = window.setTimeout(() => {
       hideControlsTimerRef.current = null
       if (!scrubbingRef.current && videoRef.current && !videoRef.current.paused) {
+        controlsVisibleRef.current = false
         setControlsVisible(false)
       }
     }, CONTROLS_HIDE_MS)
@@ -269,8 +280,49 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
 
   const revealControls = useCallback(() => {
     setControlsVisible(true)
+    controlsVisibleRef.current = true
     scheduleHideControls()
   }, [scheduleHideControls])
+
+  /** Single tap on picture: show chrome if hidden, hide if shown. */
+  const toggleControlsVisibility = useCallback(() => {
+    if (controlsVisibleRef.current) {
+      clearHideControlsTimer()
+      controlsVisibleRef.current = false
+      setControlsVisible(false)
+      return
+    }
+    controlsVisibleRef.current = true
+    setControlsVisible(true)
+    scheduleHideControls()
+  }, [clearHideControlsTimer, scheduleHideControls])
+
+  const clearSurfaceTapTimer = useCallback(() => {
+    if (surfaceTapTimerRef.current != null) {
+      window.clearTimeout(surfaceTapTimerRef.current)
+      surfaceTapTimerRef.current = null
+    }
+  }, [])
+
+  /**
+   * Picture taps: 1× → toggle chrome; 2× → play/pause.
+   * Long-press 2× speed is handled separately before this runs.
+   */
+  const handleSurfaceTap = useCallback(() => {
+    surfaceTapCountRef.current += 1
+    if (surfaceTapCountRef.current === 1) {
+      clearSurfaceTapTimer()
+      surfaceTapTimerRef.current = window.setTimeout(() => {
+        surfaceTapTimerRef.current = null
+        surfaceTapCountRef.current = 0
+        toggleControlsVisibility()
+      }, DOUBLE_TAP_MS)
+      return
+    }
+    clearSurfaceTapTimer()
+    surfaceTapCountRef.current = 0
+    togglePlayPause()
+  }, [clearSurfaceTapTimer, toggleControlsVisibility, togglePlayPause])
 
   const toggleFullscreen = useCallback(async () => {
     const wrap = videoWrapRef.current
@@ -307,6 +359,8 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
     }
     const onPause = () => {
       setPaused(true)
+      // Double-tap pause: show chrome so scrub / play are reachable
+      controlsVisibleRef.current = true
       setControlsVisible(true)
       clearHideControlsTimer()
     }
@@ -318,6 +372,7 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
     }
     const onEnded = () => {
       setPaused(true)
+      controlsVisibleRef.current = true
       setControlsVisible(true)
       clearHideControlsTimer()
     }
@@ -344,13 +399,19 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
     }
   }, [src, scheduleHideControls, clearHideControlsTimer])
 
-  // Track container / document fullscreen
+  // Track container / document fullscreen — enter FS with chrome hidden
   useEffect(() => {
     const syncFs = () => {
       const fsEl = getFullscreenElement()
       const wrap = videoWrapRef.current
       const video = videoRef.current
-      setIsFullscreen(fsEl != null && (fsEl === wrap || fsEl === video))
+      const inFs = fsEl != null && (fsEl === wrap || fsEl === video)
+      setIsFullscreen(inFs)
+      if (inFs) {
+        clearHideControlsTimer()
+        controlsVisibleRef.current = false
+        setControlsVisible(false)
+      }
     }
     syncFs()
     document.addEventListener('fullscreenchange', syncFs)
@@ -359,9 +420,15 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
       document.removeEventListener('fullscreenchange', syncFs)
       document.removeEventListener('webkitfullscreenchange', syncFs as EventListener)
     }
-  }, [src])
+  }, [src, clearHideControlsTimer])
 
-  useEffect(() => () => clearHideControlsTimer(), [clearHideControlsTimer])
+  useEffect(
+    () => () => {
+      clearHideControlsTimer()
+      clearSurfaceTapTimer()
+    },
+    [clearHideControlsTimer, clearSurfaceTapTimer],
+  )
 
   const clearHoldTimer = useCallback(() => {
     if (holdTimerRef.current != null) {
@@ -462,21 +529,12 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
       const hadPendingHold = holdTimerRef.current != null
       const wasBoosting = boostingRef.current
       endSpeedBoost()
-      // Short tap on picture: toggle play (and reveal chrome)
+      // Short tap: single → chrome on/off; double → play/pause (not long-press 2×)
       if (e.type === 'pointerup' && hadPendingHold && !wasBoosting && src) {
-        revealControls()
-        const video = videoRef.current
-        if (!video) return
-        if (video.paused) {
-          void video.play().catch(() => {
-            // autoplay / not-yet-ready — ignore
-          })
-        } else {
-          video.pause()
-        }
+        handleSurfaceTap()
       }
     },
-    [endSpeedBoost, src, revealControls],
+    [endSpeedBoost, src, handleSurfaceTap],
   )
 
   const onHoldContextMenu = useCallback((e: MouseEvent<HTMLDivElement>) => {
@@ -488,6 +546,7 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
     if (!Number.isFinite(next)) return
     scrubbingRef.current = true
     setCurrentTime(next)
+    controlsVisibleRef.current = true
     setControlsVisible(true)
     clearHideControlsTimer()
   }, [clearHideControlsTimer])
@@ -668,7 +727,10 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
           isFullscreen ? ' is-fullscreen' : ''
         }`}
         ref={videoWrapRef}
-        onMouseMove={revealControls}
+        onMouseMove={() => {
+          // Only refresh auto-hide while chrome is already open — never pop it open on hover.
+          if (controlsVisibleRef.current) scheduleHideControls()
+        }}
       >
         <video
           ref={videoRef}
