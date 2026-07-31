@@ -227,29 +227,41 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
   }, [])
 
   /** Clamp seek into [0, duration]; no-op when media not ready. */
+  /** Clamp seek into [0, duration]; no-op when media not ready. */
   const seekBy = useCallback((deltaSec: number) => {
+    console.log(`[DEBUG seekBy] called with delta: ${deltaSec}s`);
     const video = videoRef.current
-    if (!video || !src) return
+    if (!video || !src) {
+      console.log(`[DEBUG seekBy] skipped: no video or no src`);
+      return
+    }
     const now = video.currentTime
-    if (!Number.isFinite(now)) return
+    if (!Number.isFinite(now)) {
+      console.log(`[DEBUG seekBy] skipped: currentTime not finite`);
+      return
+    }
     const dur = Number.isFinite(video.duration) ? video.duration : Number.POSITIVE_INFINITY
     const next = Math.min(Math.max(0, now + deltaSec), dur)
+    console.log(`[DEBUG seekBy] seeking to ${next}s (from ${now})`);
     try {
       video.currentTime = next
       setCurrentTime(next)
-    } catch {
-      // ignore NotSupportedError while media is still opening
+    } catch (e) {
+      console.log(`[DEBUG seekBy] error setting currentTime: ${e}`);
     }
   }, [src])
 
   const seekForward10 = useCallback(() => {
+    console.log(`[DEBUG] seekForward10 called`);
     seekBy(10)
   }, [seekBy])
 
   const togglePlayPause = useCallback(() => {
+    console.log(`[DEBUG togglePlayPause] called`);
     const video = videoRef.current
     if (!video || !src) return
     if (video.paused) {
+      console.log(`[DEBUG] playing video...`);
       void video.play().catch(() => {
         // autoplay policy / not ready
       })
@@ -309,18 +321,21 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
    * Long-press 2× speed is handled separately before this runs.
    */
   const handleSurfaceTap = useCallback(() => {
+    console.log(`[DEBUG handleSurfaceTap] called (double tap / short tap)`);
     surfaceTapCountRef.current += 1
     if (surfaceTapCountRef.current === 1) {
       clearSurfaceTapTimer()
       surfaceTapTimerRef.current = window.setTimeout(() => {
         surfaceTapTimerRef.current = null
         surfaceTapCountRef.current = 0
+        console.log(`[DEBUG] single tap → toggleControlsVisibility`);
         toggleControlsVisibility()
       }, DOUBLE_TAP_MS)
       return
     }
     clearSurfaceTapTimer()
     surfaceTapCountRef.current = 0
+    console.log(`[DEBUG] double tap → togglePlayPause`);
     togglePlayPause()
   }, [clearSurfaceTapTimer, toggleControlsVisibility, togglePlayPause])
 
@@ -487,6 +502,7 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
 
   const onHoldPointerDown = useCallback(
     (e: PointerEvent<HTMLDivElement>) => {
+      console.log(`[DEBUG onHoldPointerDown] pointerdown detected (long press start)`);
       if (!src) return
       if (!e.isPrimary) return
       if (e.pointerType === 'mouse' && e.button !== 0) return
@@ -496,6 +512,7 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
       const target = e.currentTarget
       holdTimerRef.current = window.setTimeout(() => {
         holdTimerRef.current = null
+        console.log(`[DEBUG] long press timeout → beginSpeedBoost`);
         beginSpeedBoost(pointerId, target)
       }, SPEED_BOOST_HOLD_MS)
     },
@@ -518,6 +535,7 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
 
   const onHoldPointerEnd = useCallback(
     (e: PointerEvent<HTMLDivElement>) => {
+      console.log(`[DEBUG onHoldPointerEnd] pointerup detected`);
       if (!e.isPrimary) return
       if (
         boostPointerIdRef.current != null &&
@@ -531,6 +549,7 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
       endSpeedBoost()
       // Short tap: single → chrome on/off; double → play/pause (not long-press 2×)
       if (e.type === 'pointerup' && hadPendingHold && !wasBoosting && src) {
+        console.log(`[DEBUG] short tap after hold → handleSurfaceTap (double tap)`);
         handleSurfaceTap()
       }
     },
