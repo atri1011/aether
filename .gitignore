@@ -27,3 +27,7 @@ artifacts/tmp/
 .playwright-mcp/
 design-system/aether/MASTER.md
 server/py/__pycache__/
+dist
+dist/
+dist
+dist/
