@@ -283,8 +283,8 @@ router.get('/api/actresses/:slug', async (req, res) => {
   const nameHint = String(req.query.name || '').trim()
   const actressIdHint = String(req.query.actressId || '').trim()
   const avatarHint = String(req.query.avatarUrl || '').trim()
-  // v15: CJK-first Recombee (≤2 RTT) + delayed scrape race; release-date sort on RB pool.
-  const key = `actresses:detail:v15:${locale}:${slug}:${nameHint}:${actressIdHint}:${page}:${filters}:${sort}`
+  // v16: bootstrap JP cast from CN display names (桃乃木香奈 → 桃乃木かな).
+  const key = `actresses:detail:v16:${locale}:${slug}:${nameHint}:${actressIdHint}:${page}:${filters}:${sort}`
   const isDefaultListing = !filters && (!sort || sort === DEFAULT_SORT.actress)
   try {
     const { data, cache } = await withCache(
@@ -618,10 +618,10 @@ router.get('/api/actresses/:slug', async (req, res) => {
       }
     },
       {
-        // Never persist empty non-default sort/filter responses (15min sticky miss).
-        // Prefer entries that still carry a portrait when seed/scrape provided one.
-        shouldCache: (d) =>
-          Boolean(d?.items?.length) || (isDefaultListing && hasActressProfile(d?.actress)),
+        // Only cache real works. Profile-only empty shells used to stick for the
+        // full browse TTL as "没有结果" (CN display name ≠ JP Recombee cast).
+        // Portrait still comes from list/search nav seed + ensureActressAvatar.
+        shouldCache: (d) => Boolean(d?.items?.length),
       },
     )
     res.setHeader('X-Aether-Cache', cache)

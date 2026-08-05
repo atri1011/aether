@@ -196,27 +196,101 @@ export async function loadActressWorksFromRecombee({
     return mapRecomms(raw, locale)
   }
 
-  /** From romaji search hits, pick the dominant CJK cast name to re-filter. */
-  const bootstrapCjkFromHits = (hitItems) => {
+  /**
+   * From search hits, pick the dominant CJK cast name to re-filter.
+   *
+   * Used for:
+   * - romaji slug → JP cast (kana-momonogi → 桃乃木かな)
+   * - CN display name → JP cast (桃乃木香奈 → 桃乃木かな)
+   * - simplified ↔ traditional (三上悠亚 → 三上悠亜, 桥本有菜 → 橋本ありな)
+   *
+   * MissAV zh UI / our list cards often show CN transcriptions, while Recombee
+   * `actresses` stores the JP form. Exact `"桃乃木香奈" in 'actresses'` is empty
+   * even though unfiltered search ranks her works first.
+   */
+  const bootstrapCjkFromHits = (hitItems, preferRelatedTo = []) => {
+    const items = hitItems || []
+    const hitN = items.length
     const counts = new Map()
-    for (const it of hitItems || []) {
+    for (const it of items) {
       for (const a of it.actresses || []) {
         const name = String(a || '').trim()
         if (!CJK_RE.test(name)) continue
+        // Keep full Recombee string ("新ありな (橋本ありな)"); matching still
+        // uses actressFieldMatches which splits parentheticals.
         counts.set(name, (counts.get(name) || 0) + 1)
       }
     }
+    if (!counts.size) return null
+
+    const related = (preferRelatedTo || [])
+      .map((s) => normalizeActressToken(s))
+      .filter((s) => s.length >= 2)
+
+    // Prefer a dominant cast that also shares a prefix/overlap with the query
+    // (桃乃木香奈 ↔ 桃乃木かな share 桃乃木). Avoid pinning a co-star.
     let best = ''
     let bestN = 0
+    let bestRelated = ''
+    let bestRelatedN = 0
     for (const [n, c] of counts) {
       if (c > bestN) {
         best = n
         bestN = c
       }
+      if (!related.length) continue
+      const nt = normalizeActressToken(n)
+      const close = related.some(
+        (r) =>
+          nt === r ||
+          nt.includes(r) ||
+          r.includes(nt) ||
+          // Shared leading 2+ CJK chars (surname / stage-name stem)
+          (nt.length >= 2 &&
+            r.length >= 2 &&
+            (nt.slice(0, 2) === r.slice(0, 2) || nt.slice(0, 3) === r.slice(0, 3))),
+      )
+      if (close && c > bestRelatedN) {
+        bestRelated = n
+        bestRelatedN = c
+      }
     }
+
+    if (bestRelated && bestRelatedN >= 2) return bestRelated
     // Require a clear majority so we don't pin a co-star from mixed results.
     if (!best || bestN < 3) return null
-    return best
+
+    const bt = normalizeActressToken(best)
+    const anyOverlap =
+      !related.length ||
+      related.some(
+        (r) =>
+          bt === r ||
+          bt.includes(r) ||
+          r.includes(bt) ||
+          (bt.length >= 2 && r.length >= 2 && bt.slice(0, 2) === r.slice(0, 2)),
+      )
+    if (anyOverlap) return best
+
+    // No char overlap (桥本有菜 ↔ 橋本ありな, 香奈 ↔ かな with different stem
+    // after co-star noise): still accept when this cast dominates the hit list.
+    // Unfiltered search already ranked these works for the query — a ≥50%
+    // single-cast majority is strong enough without glyph overlap.
+    if (hitN >= 6 && bestN * 2 >= hitN) return best
+    return null
+  }
+
+  const applyBootstrap = (m, q) => {
+    const boot = bootstrapCjkFromHits(m.items, hasCjkHint ? candidates : [])
+    if (!boot) return false
+    const narrowed = m.items.filter((it) =>
+      itemMatchesActress(it, [boot, ...candidates]),
+    )
+    if (!narrowed.length) return false
+    mapped = { ...m, items: narrowed }
+    usedQuery = q
+    bootstrappedName = boot
+    return true
   }
 
   // Pass 1: ≤2 queries. Prefer cast filter only when CJK (typical hit ~0.7s).
@@ -230,36 +304,25 @@ export async function loadActressWorksFromRecombee({
         usedQuery = q
         break
       }
-      // CJK cast filter already constrained results — trust the hit.
+      // Exact CJK cast filter already constrained results — trust the hit.
+      // (Only set when filterName itself is CJK that exists in Recombee.)
       if (baseActressFilter) {
         mapped = m
         usedQuery = q
         break
       }
-      // Romaji slug: search relevance often lands on the right cast — bootstrap
-      // the CJK name from hits and re-filter (avoids 10s+ CF scrape).
-      if (!hasCjkHint) {
-        const boot = bootstrapCjkFromHits(m.items)
-        if (boot) {
-          const narrowed = m.items.filter((it) =>
-            itemMatchesActress(it, [boot, ...candidates]),
-          )
-          if (narrowed.length) {
-            mapped = { ...m, items: narrowed }
-            usedQuery = q
-            bootstrappedName = boot
-            break
-          }
-        }
-      }
+      // No exact cast filter hit (romaji slug, or CN name ≠ JP cast field):
+      // bootstrap the real JP cast name from search relevance and re-filter.
+      if (applyBootstrap(m, q)) break
     } catch {
       /* next */
     }
   }
 
-  // Pass 2 (CJK only): unfiltered search + strict cast match.
+  // Pass 2 (CJK only): unfiltered search + strict match, then bootstrap.
+  // Needed when Pass 1 used `"CN名" in 'actresses'` → 0 hits (Recombee stores JP).
   // Skipped for romaji (pass 1 already ran without cast filter).
-  if (!mapped?.items?.length && hasCjkHint && baseActressFilter) {
+  if (!mapped?.items?.length && hasCjkHint) {
     const q = queries[0]
     try {
       const m = await trySearch(q, filters ? recombeeFilterFor(filters) : undefined)
@@ -268,6 +331,9 @@ export async function loadActressWorksFromRecombee({
         if (strict.length) {
           mapped = { ...m, items: strict }
           usedQuery = q
+        } else {
+          // 桃乃木香奈 / 三上悠亚 / 桥本有菜 → bootstrap 桃乃木かな / 三上悠亜 / …
+          applyBootstrap(m, q)
         }
       }
     } catch {

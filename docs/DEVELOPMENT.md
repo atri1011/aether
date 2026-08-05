@@ -378,10 +378,14 @@ GET  /api/actresses/:slug
 
 ### 9.4 女优详情
 
-1. **作品快路径**：Recombee `search` + `"女优名" in 'actresses'`（`services/actressWorks.js`）
+1. **作品快路径**（`services/actressWorks.js`）：
+   - Recombee `search`；有 CJK 时先试 `"名" in 'actresses'` 精确 filter
+   - **中日名差**：MissAV 中文站 / 列表卡常用「桃乃木香奈」「三上悠亚」，Recombee `actresses` 存日文「桃乃木かな」「三上悠亜」。精确 filter 会空；无 filter 的 search 仍能按相关度命中作品 → 从 hit 的 cast **bootstrap** 主导日文名再严格过滤
+   - romaji slug 同样走 bootstrap（`kana-momonogi` → `桃乃木かな`）
 2. **头像 seed**：列表/搜索卡 `location.state` + query `name`/`actressId`/`avatarUrl`；`ensureActressAvatar` 用 id 补 fourhoi URL
 3. Recombee 空或 individual/multiple → scrape detail → `scrape_list` 回退
 4. 分页以数据源 `hasMore` 为准；翻页合并时**不得**用空 `avatarUrl` 覆盖已有头像
+5. 磁盘缓存 key `actresses:detail:v16:…`；**只缓存有作品的响应**（避免 profile-only 空壳粘成「没有结果」）
 
 ---
 
@@ -394,7 +398,8 @@ GET  /api/actresses/:slug
 | 全站 401 | `SITE_PASSWORD` 已开；先 `/api/auth/login`；cookie 是否 SameSite/Secure 不匹配 |
 | scrape 全失败 | `pip show curl_cffi`；Python 是否叫 `python`；看 Node 日志 / py stderr |
 | 女优搜索结果串了 | 旧缓存 key 把 CJK 抹成 `_`；清 `.cache/aether` 并确认 `cache.js` 保留 Unicode |
-| Recombee 空 | token / 签名 / filter 语法；对比 `recombee.js` 与 api-contract |
+| 女优详情「没有结果」但站外有片 | 中日名差（香奈 vs かな）；看 `actressWorks` bootstrap；清 `.cache/aether` 或 bump `detail:vN` |
+| Recombee 空 | token / 签名 / filter 语法；对比 `recombee.js` 与 api-contract；CN 名精确 filter 空属预期 |
 | Docker 无流 | 容器内 media worker 日志；`MEDIA_PORT` 未被占；`curl_cffi` 是否装上 |
 | 缓存「改代码不生效」 | key 版本未 bump；或 SWR 一直返回 stale |
 

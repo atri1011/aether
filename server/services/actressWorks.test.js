@@ -107,3 +107,23 @@ describe('canUseRecombeeActressWorks', () => {
     assert.equal(canUseRecombeeActressWorks('individual'), false)
   })
 })
+
+describe('CN display name vs JP cast field', () => {
+  it('does not exact-match 桃乃木香奈 to 桃乃木かな (needs bootstrap)', () => {
+    // Repro of empty actress detail: MissAV zh card uses 香奈, Recombee stores かな.
+    assert.equal(actressFieldMatches('桃乃木かな', ['桃乃木香奈']), false)
+    assert.equal(
+      itemMatchesActress({ actresses: ['桃乃木かな'] }, ['桃乃木香奈']),
+      false,
+    )
+  })
+
+  it('still matches exact JP and parenthetical aliases', () => {
+    assert.equal(actressFieldMatches('桃乃木かな', ['桃乃木かな']), true)
+    assert.equal(actressFieldMatches('新ありな (橋本ありな)', ['橋本ありな']), true)
+  })
+
+  it('prefers CJK filter name over romaji', () => {
+    assert.equal(pickFilterName(['kana-momonogi', '桃乃木香奈']), '桃乃木香奈')
+  })
+})
