@@ -132,11 +132,21 @@ async function withWorker(rpcPath, body, fallback) {
   }
 }
 
-export function pyResolveStream(id) {
+/**
+ * @param {string} id
+ * @param {{ dm?: number|string|null }} [opts] Recombee values.dm → /dm{N}/ path shard
+ */
+export function pyResolveStream(id, opts = {}) {
+  const dm =
+    opts?.dm != null && opts.dm !== '' && Number(opts.dm) > 0
+      ? String(Math.trunc(Number(opts.dm)))
+      : ''
+  const body = dm ? { id, dm: Number(dm) } : { id }
+  const args = dm ? [id, dm] : [id]
   return withWorker(
     '/resolve',
-    { id },
-    () => runPython('resolve_stream.py', [id], { timeoutMs: 60000 }),
+    body,
+    () => runPython('resolve_stream.py', args, { timeoutMs: 60000 }),
   )
 }
 

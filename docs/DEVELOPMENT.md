@@ -373,8 +373,9 @@ GET  /api/actresses/:slug
 ### 9.3 观看页
 
 1. `GET /api/video/:id`：Recombee 搜 meta + related + resolve stream（可缓存）
-2. 响应里 `stream.masterUrl` 已是 `/api/hls?url=…`
-3. 失败可 `POST …/resolve-stream` 强制重解析，或手动贴 UUID/m3u8（前端仍走代理）
+2. Stream resolve：`resolve_stream.py` 用 curl_cffi；**优先** Recombee `values.dm` 拼 `https://missav.ws/dm{N}/{id}`（VPS 上 bare `/{id}` 常被 CF 403，而 dm 分片可过），再回退 bare/locale；解析 packed m3u8 / surrit seek UUID
+3. 响应里 `stream.masterUrl` 已是 `/api/hls?url=…`
+4. 失败可 `POST …/resolve-stream` 强制重解析，或手动贴 UUID/m3u8（前端仍走代理）
 
 ### 9.4 女优详情
 

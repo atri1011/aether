@@ -134,7 +134,11 @@ def handle_resolve(body: dict) -> dict:
     video_id = str(body.get("id") or body.get("videoId") or "").strip()
     if not video_id:
         return {"ok": False, "error": "id required"}
-    return resolve_stream.resolve(video_id)
+    # Recombee values.dm → MissAV /dm{N}/ shard (avoids bare-path CF 403 on VPS).
+    dm = body.get("dm")
+    if dm is None or dm == "":
+        dm = body.get("DM")
+    return resolve_stream.resolve(video_id, dm=dm)
 
 
 ROUTES = {

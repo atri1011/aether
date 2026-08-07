@@ -63,7 +63,9 @@ export async function loadVideoBundle(id, locale, { forceStream = false, include
     }
     if (!stream?.masterUrl || forceStream) {
       try {
-        stream = await resolveStream(metaItem.id)
+        // Recombee values.dm → MissAV /dm{N}/ shard (bare /{id} often CF-403 on VPS).
+        const dm = metaItem?.values?.dm
+        stream = await resolveStream(metaItem.id, { dm })
         await cacheSet(streamKey, stream, config.ttl.stream)
         streamStatus = 'resolved'
       } catch (e) {
