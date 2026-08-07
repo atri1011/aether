@@ -23,6 +23,7 @@ import catalogRouter from './routes/catalog.js'
 import healthRouter from './routes/health.js'
 import homeRouter from './routes/home.js'
 import videoRouter from './routes/video.js'
+import whosRouter from './routes/whos.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -48,6 +49,7 @@ export function createApp() {
   app.use(catalogRouter)
   app.use(videoRouter)
   app.use(actressesRouter)
+  app.use(whosRouter)
 
   // production static
   const dist = path.join(__dirname, '..', 'dist')

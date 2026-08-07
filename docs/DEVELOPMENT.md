@@ -119,12 +119,13 @@ aether/
 │   ├── videoFilters.js / stream.js / pybridge.js / hlsProxy.js
 │   ├── mediaWorker.js      # media_server :18790（含 /fetch_stream）
 │   ├── scrapeWorker.js     # scrape_server :18791
-│   ├── routes/             # home / catalog / video / actresses / health
+│   ├── routes/             # home / catalog / video / actresses / whos / health
 │   ├── services/           # cacheWrap / scrapeMap / videoBundle / warm / metrics
 │   ├── middleware/         # security / rateLimit
 │   ├── util/               # locale / sendError
 │   └── py/
 │       ├── scrape_list.py / scrape_actresses.py / scrape_catalog.py
+│       ├── scrape_whos.py  # whos.tv 帧探索 / 专题 / 排行榜
 │       ├── resolve_stream.py / scrape_server.py
 │       ├── media_server.py / fetch_media.py
 ├── design-system/ / deploy/ / docs/
@@ -344,6 +345,12 @@ GET  /api/actresses/filters
 GET  /api/actresses/ranking
 GET  /api/actresses/search?q=
 GET  /api/actresses/:slug
+GET  /api/whos/frames/categories
+GET  /api/whos/frames?type=&labelId=&page=
+GET  /api/whos/frames/:id
+GET  /api/whos/topics?category=&page=
+GET  /api/whos/topics/:id?page=
+GET  /api/whos/ranking?kind=video|actress
 ```
 
 错误体：

@@ -102,7 +102,7 @@ Node Express (server/index.js → app.js :8787)
 
 **Python scripts (`server/py/`):**
 
-- `scrape_list.py` / `scrape_actresses.py` / `scrape_catalog.py` / `resolve_stream.py` — CLI + importable by worker
+- `scrape_list.py` / `scrape_actresses.py` / `scrape_catalog.py` / `scrape_whos.py` / `resolve_stream.py` — CLI + importable by worker
 - `scrape_server.py` — long-lived scrape RPC `:18791`
 - `media_server.py` — long-lived `/fetch` + `/fetch_stream` `:18790`
 - `fetch_media.py` — one-shot media fallback
@@ -130,6 +130,7 @@ GET  /api/c/:slug  |  /api/c/:kind/:name
 GET  /api/video/:id  |  /related
 POST /api/video/:id/resolve-stream
 GET  /api/actresses  /filters  /ranking  /search  /:slug
+GET  /api/whos/frames[/categories|/:id]  /topics[/:id]  /ranking
 ```
 
 Errors: `{ error, code, details? }` (`UPSTREAM`, `NOT_FOUND`, …). Cache mode often on `X-Aether-Cache`.

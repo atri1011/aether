@@ -67,6 +67,25 @@ export function NavIcon({ name }: { name?: NavIconName }) {
           <path d="M5 18V11M12 18V6M19 18v-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
         </svg>
       )
+    case 'frames':
+      return (
+        <svg {...common}>
+          <rect x="3.5" y="6" width="17" height="12" rx="2" stroke="currentColor" strokeWidth="1.7" />
+          <path d="M8 6V4.5M16 6V4.5M8 18v1.5M16 18v1.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+          <path d="M3.5 12h17" stroke="currentColor" strokeWidth="1.4" opacity="0.45" />
+        </svg>
+      )
+    case 'topics':
+      return (
+        <svg {...common}>
+          <path
+            d="M8 4.5h9.5A2.5 2.5 0 0 1 20 7v9.5A2.5 2.5 0 0 1 17.5 19H8A2.5 2.5 0 0 1 5.5 16.5V7A2.5 2.5 0 0 1 8 4.5Z"
+            stroke="currentColor"
+            strokeWidth="1.7"
+          />
+          <path d="M9 9h7M9 12.5h5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        </svg>
+      )
     case 'genres':
       return (
         <svg {...common}>

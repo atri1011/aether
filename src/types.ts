@@ -137,3 +137,80 @@ export interface VideoFilterOptions {
 }
 
 export type Locale = 'zh' | 'en'
+
+/** whos.tv frame card (16:9 scene still) */
+export interface WhosFrame {
+  id: string
+  title: string
+  imageUrl: string
+  code: string
+  displayCode?: string
+  timestamp?: string
+  actress?: string
+  path?: string
+  seekSec?: number | null
+  label?: string
+  tags?: string[]
+  videoPath?: string
+  /** AETHER watch id when code is a DVD-like slug */
+  watchId?: string | null
+}
+
+export interface WhosFrameType {
+  typeId: number
+  type: string
+  title: string
+  titleZh?: string
+  titleEn?: string
+}
+
+export interface WhosFrameLabel {
+  typeId: number
+  type: string
+  labelId: number
+  name: string
+}
+
+export interface WhosTopic {
+  id: string
+  title: string
+  description?: string
+  coverUrl: string
+  frameCount?: number | null
+  videoCount?: number | null
+  favoriteCount?: number | null
+  path?: string
+}
+
+export interface WhosTopicCategory {
+  id: string
+  slug: string
+  title: string
+  titleZh?: string
+  titleEn?: string
+}
+
+/** Hot frame thumb on ranking row (whos.tv 热门帧) */
+export interface WhosHotFrame {
+  id: string
+  imageUrl: string
+  title?: string
+  path?: string
+}
+
+export interface WhosRankingVideo extends VideoSummary {
+  rank?: number | null
+  rating?: number | null
+  /** Right-side 热门帧 carousel for this ranked video */
+  hotFrames?: WhosHotFrame[]
+  frameImageUrls?: string[]
+  frameIds?: string[]
+}
+
+export interface WhosRankingActress {
+  rank: number
+  slug: string
+  name: string
+  avatarUrl: string
+  path?: string
+}

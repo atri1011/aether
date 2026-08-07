@@ -12,6 +12,13 @@ import type {
   VideoFilterOptions,
   VideoListQuery,
   VideoSummary,
+  WhosFrame,
+  WhosFrameLabel,
+  WhosFrameType,
+  WhosRankingActress,
+  WhosRankingVideo,
+  WhosTopic,
+  WhosTopicCategory,
 } from '../types'
 import {
   actressDetailCacheKey,
@@ -260,6 +267,78 @@ export const api = {
     if (!res.ok) throw new Error(data?.error || res.statusText)
     return data as VideoDetail
   },
+  // ── whos.tv: frames / topics / ranking ─────────────────
+  whosFrameCategories: (locale: Locale, opts?: FetchOpts) =>
+    getJson<{ types: WhosFrameType[]; labels: WhosFrameLabel[]; source?: string }>(
+      `/api/whos/frames/categories?locale=${locale}`,
+      locale,
+      opts,
+    ),
+  whosFrames: (
+    locale: Locale,
+    params: { type?: string; labelId?: string | number; page?: number } = {},
+    opts?: FetchOpts,
+  ) => {
+    const p = new URLSearchParams()
+    p.set('locale', locale)
+    p.set('page', String(params.page || 1))
+    if (params.type) p.set('type', String(params.type))
+    if (params.labelId != null && params.labelId !== '') p.set('labelId', String(params.labelId))
+    return getJson<{
+      title: string
+      type?: string
+      typeId?: number | null
+      labelId?: number | null
+      page: number
+      maxPage?: number | null
+      hasMore?: boolean
+      items: WhosFrame[]
+      source?: string
+    }>(`/api/whos/frames?${p.toString()}`, locale, opts)
+  },
+  whosFrameDetail: (id: string, locale: Locale, opts?: FetchOpts) =>
+    getJson<{ item: WhosFrame; related: WhosFrame[]; source?: string }>(
+      `/api/whos/frames/${encodeURIComponent(id)}?locale=${locale}`,
+      locale,
+      opts,
+    ),
+  whosTopics: (
+    locale: Locale,
+    params: { category?: string; page?: number } = {},
+    opts?: FetchOpts,
+  ) => {
+    const p = new URLSearchParams()
+    p.set('locale', locale)
+    p.set('page', String(params.page || 1))
+    if (params.category) p.set('category', params.category)
+    return getJson<{
+      title: string
+      category?: string
+      categories: WhosTopicCategory[]
+      page: number
+      maxPage?: number | null
+      hasMore?: boolean
+      items: WhosTopic[]
+      source?: string
+    }>(`/api/whos/topics?${p.toString()}`, locale, opts)
+  },
+  whosTopicDetail: (id: string, locale: Locale, page = 1, opts?: FetchOpts) =>
+    getJson<{
+      item: WhosTopic
+      frames: WhosFrame[]
+      page: number
+      maxPage?: number | null
+      hasMore?: boolean
+      source?: string
+    }>(`/api/whos/topics/${encodeURIComponent(id)}?locale=${locale}&page=${page}`, locale, opts),
+  whosRanking: (locale: Locale, kind: 'video' | 'actress' = 'video', opts?: FetchOpts) =>
+    getJson<{
+      kind: string
+      title: string
+      items: WhosRankingVideo[] | WhosRankingActress[]
+      source?: string
+    }>(`/api/whos/ranking?locale=${locale}&kind=${kind}`, locale, opts),
+
   actressFilters: (locale: Locale, opts?: FetchOpts) =>
     getJson<{ filters: ActressFilterOptions }>(
       `/api/actresses/filters?locale=${locale}`,

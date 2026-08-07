@@ -10,6 +10,11 @@ import { GenresPage, MakersPage } from './pages/CategoryIndexPage'
 import { WatchPage } from './pages/WatchPage'
 import { ActressesPage } from './pages/ActressesPage'
 import { ActressDetailPage } from './pages/ActressDetailPage'
+import { FramesPage } from './pages/FramesPage'
+import { FrameDetailPage } from './pages/FrameDetailPage'
+import { TopicsPage } from './pages/TopicsPage'
+import { TopicDetailPage } from './pages/TopicDetailPage'
+import { WhosRankingPage } from './pages/WhosRankingPage'
 
 export default function App() {
   return (
@@ -31,6 +36,12 @@ export default function App() {
               <Route path="c/:kind/:name" element={<CategoriesPage />} />
               <Route path="c/:slug" element={<CategoriesPage />} />
               <Route path="v/:id" element={<WatchPage />} />
+              {/* whos.tv: frames / topics / ranking */}
+              <Route path="frames" element={<FramesPage />} />
+              <Route path="frames/:id" element={<FrameDetailPage />} />
+              <Route path="topics" element={<TopicsPage />} />
+              <Route path="topics/:id" element={<TopicDetailPage />} />
+              <Route path="ranking" element={<WhosRankingPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

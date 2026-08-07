@@ -264,3 +264,45 @@ export function pyScrapeCatalog(kind = 'genres', page = 1, locale = 'zh') {
       runPython('scrape_catalog.py', [k, String(page || 1), loc], { timeoutMs: 50000 }),
   )
 }
+
+/** whos.tv frames / topics / ranking — see scrape_whos.py */
+function whosLocale(locale) {
+  const loc = String(locale || 'zh').toLowerCase()
+  if (loc.startsWith('en')) return 'en'
+  if (loc.startsWith('ja')) return 'ja'
+  return 'zh'
+}
+
+export function pyScrapeWhos(mode, opts = {}) {
+  const m = String(mode || 'frames').toLowerCase()
+  const loc = whosLocale(opts.locale)
+  const body = { mode: m, locale: loc, ...opts, locale: loc }
+  const dash = (v) => (v == null || v === '' ? '-' : String(v))
+  let args
+  if (m === 'categories' || m === 'cats') {
+    args = ['categories', loc]
+  } else if (m === 'frames') {
+    args = [
+      'frames',
+      dash(opts.type || opts.typeSlug),
+      dash(opts.labelId ?? opts.label_id),
+      String(opts.page || 1),
+      loc,
+    ]
+  } else if (m === 'frame') {
+    args = ['frame', String(opts.id || opts.frameId || ''), loc]
+  } else if (m === 'topics') {
+    args = ['topics', dash(opts.category), String(opts.page || 1), loc]
+  } else if (m === 'topic') {
+    args = ['topic', String(opts.id || opts.topicId || ''), String(opts.page || 1), loc]
+  } else if (m === 'ranking') {
+    args = ['ranking', String(opts.kind || 'video'), loc]
+  } else {
+    args = [m, loc]
+  }
+  return withWorker(
+    '/scrape/whos',
+    body,
+    () => runPython('scrape_whos.py', args, { timeoutMs: 55000 }),
+  )
+}

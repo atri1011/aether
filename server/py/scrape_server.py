@@ -6,6 +6,7 @@ Reuses process + curl_cffi sessions; Node talks HTTP JSON.
 POST /scrape/list
 POST /scrape/actresses
 POST /scrape/catalog
+POST /scrape/whos
 POST /resolve
 GET  /health
 """
@@ -45,12 +46,15 @@ def _import_scrapers():
     import scrape_list
     import scrape_actresses
     import scrape_catalog
+    import scrape_whos
     import resolve_stream
 
-    return scrape_list, scrape_actresses, scrape_catalog, resolve_stream
+    return scrape_list, scrape_actresses, scrape_catalog, scrape_whos, resolve_stream
 
 
-scrape_list, scrape_actresses, scrape_catalog, resolve_stream = _import_scrapers()
+scrape_list, scrape_actresses, scrape_catalog, scrape_whos, resolve_stream = (
+    _import_scrapers()
+)
 
 
 def handle_list(body: dict) -> dict:
@@ -130,6 +134,56 @@ def handle_catalog(body: dict) -> dict:
     return scrape_catalog.scrape(kind, page, locale)
 
 
+def handle_whos(body: dict) -> dict:
+    mode = (body.get("mode") or "frames").lower()
+    locale = body.get("locale") or "zh"
+    if mode in {"categories", "cats"}:
+        return scrape_whos.scrape_frame_categories(locale)
+    if mode == "frame":
+        return scrape_whos.scrape_frame_detail(
+            str(body.get("id") or body.get("frameId") or ""),
+            locale,
+        )
+    if mode == "frames":
+        type_slug = body.get("type") or body.get("typeSlug") or ""
+        type_id = body.get("typeId")
+        label_id = body.get("labelId") or body.get("label_id")
+        page = int(body.get("page") or 1)
+        try:
+            type_id = int(type_id) if type_id not in (None, "", "-") else None
+        except (TypeError, ValueError):
+            type_id = None
+        try:
+            label_id = int(label_id) if label_id not in (None, "", "-") else None
+        except (TypeError, ValueError):
+            label_id = None
+        return scrape_whos.scrape_frames(
+            type_slug=str(type_slug or ""),
+            type_id=type_id,
+            label_id=label_id,
+            page=page,
+            locale=locale,
+        )
+    if mode == "topics":
+        return scrape_whos.scrape_topics(
+            category=str(body.get("category") or ""),
+            page=int(body.get("page") or 1),
+            locale=locale,
+        )
+    if mode == "topic":
+        return scrape_whos.scrape_topic_detail(
+            str(body.get("id") or body.get("topicId") or ""),
+            page=int(body.get("page") or 1),
+            locale=locale,
+        )
+    if mode == "ranking":
+        return scrape_whos.scrape_ranking(
+            str(body.get("kind") or "video"),
+            locale,
+        )
+    return {"ok": False, "error": f"unknown whos mode: {mode}"}
+
+
 def handle_resolve(body: dict) -> dict:
     video_id = str(body.get("id") or body.get("videoId") or "").strip()
     if not video_id:
@@ -145,6 +199,7 @@ ROUTES = {
     "/scrape/list": handle_list,
     "/scrape/actresses": handle_actresses,
     "/scrape/catalog": handle_catalog,
+    "/scrape/whos": handle_whos,
     "/resolve": handle_resolve,
 }
 

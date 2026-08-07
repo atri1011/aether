@@ -18,6 +18,8 @@ export type NavIconName =
   | 'asia'
   | 'vr'
   | 'list'
+  | 'frames'
+  | 'topics'
 
 export type NavLeaf = {
   id: string
@@ -60,6 +62,39 @@ export const NAV: NavEntry[] = [
     titleEn: 'Browse',
     to: '/browse',
     icon: 'browse',
+  },
+  {
+    type: 'group',
+    id: 'whos-explore',
+    titleZh: '帧与专题',
+    titleEn: 'Frames & Topics',
+    icon: 'frames',
+    defaultOpen: true,
+    children: [
+      {
+        id: 'frames',
+        titleZh: '帧探索',
+        titleEn: 'Frame explore',
+        to: '/frames',
+        icon: 'frames',
+        end: true,
+      },
+      {
+        id: 'topics',
+        titleZh: '专题',
+        titleEn: 'Topics',
+        to: '/topics',
+        icon: 'topics',
+        end: true,
+      },
+      {
+        id: 'whos-ranking',
+        titleZh: '排行榜',
+        titleEn: 'Ranking',
+        to: '/ranking',
+        icon: 'ranking',
+      },
+    ],
   },
   {
     type: 'link',
