@@ -254,8 +254,8 @@ router.get('/api/whos/ranking', async (req, res) => {
   let kind = (qStr(req.query.kind) || 'video').toLowerCase()
   if (kind === 'actresses') kind = 'actress'
   if (kind !== 'actress') kind = 'video'
-  // v2: include per-video hotFrames (热门帧) on the right of each row
-  const key = `whos:ranking:v2:${locale}:${kind}`
+  // v3: actress name fix + videoCount; video rows still include hotFrames
+  const key = `whos:ranking:v3:${locale}:${kind}`
   try {
     const { data, cache } = await withCache(key, TTL, async () => {
       const scraped = await pyScrapeWhos('ranking', { locale, kind })
@@ -268,13 +268,22 @@ router.get('/api/whos/ranking', async (req, res) => {
         return {
           kind,
           title: scraped.title || (locale === 'en' ? 'Actress Ranking' : '女优排行榜'),
-          items: (scraped.items || []).map((it, i) => ({
-            rank: it.rank ?? i + 1,
-            slug: it.slug || '',
-            name: it.name || it.slug || '',
-            avatarUrl: it.avatarUrl || '',
-            path: it.path || '',
-          })),
+          items: (scraped.items || []).map((it, i) => {
+            const slug = String(it.slug || '')
+            let name = String(it.name || '').trim()
+            // Guard: scrape occasionally picks "2437 部作品" as the name node
+            if (!name || /^\d[\d,]*\s*(部作品|作品|videos?|titles?)$/i.test(name)) {
+              name = slug
+            }
+            return {
+              rank: it.rank ?? i + 1,
+              slug,
+              name: name || slug,
+              avatarUrl: it.avatarUrl || '',
+              path: it.path || '',
+              videoCount: it.videoCount ?? null,
+            }
+          }),
           source: scraped.source || 'whos',
         }
       }

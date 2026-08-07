@@ -71,6 +71,19 @@ export function TopicDetailPage() {
     )
   }
 
+  const counts = [
+    item?.frameCount != null
+      ? locale === 'en'
+        ? `${item.frameCount} frames`
+        : `${item.frameCount} 帧`
+      : null,
+    item?.videoCount != null
+      ? locale === 'en'
+        ? `${item.videoCount} videos`
+        : `${item.videoCount} 影片`
+      : null,
+  ].filter(Boolean)
+
   return (
     <div className="page topic-detail-page">
       <nav className="crumb">
@@ -79,32 +92,24 @@ export function TopicDetailPage() {
         <span>{item?.title || id}</span>
       </nav>
 
-      <header className="page-head topic-hero">
+      <header className={`page-head topic-hero${item?.coverUrl ? ' has-cover' : ''}`}>
         {item?.coverUrl ? (
           <div className="topic-hero-cover">
             <img src={item.coverUrl} alt="" />
+            <div className="topic-hero-grad" aria-hidden="true" />
+            <div className="topic-hero-overlay">
+              <h1 className="page-title">{item?.title || id}</h1>
+              {item?.description ? <p className="page-sub">{item.description}</p> : null}
+              {counts.length ? <p className="topic-hero-counts">{counts.join(' · ')}</p> : null}
+            </div>
           </div>
-        ) : null}
-        <div>
-          <h1 className="page-title">{item?.title || id}</h1>
-          {item?.description ? <p className="page-sub">{item.description}</p> : null}
-          <p className="page-sub">
-            {[
-              item?.frameCount != null
-                ? locale === 'en'
-                  ? `${item.frameCount} frames`
-                  : `${item.frameCount} 帧`
-                : null,
-              item?.videoCount != null
-                ? locale === 'en'
-                  ? `${item.videoCount} videos`
-                  : `${item.videoCount} 影片`
-                : null,
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </p>
-        </div>
+        ) : (
+          <div>
+            <h1 className="page-title">{item?.title || id}</h1>
+            {item?.description ? <p className="page-sub">{item.description}</p> : null}
+            {counts.length ? <p className="page-sub">{counts.join(' · ')}</p> : null}
+          </div>
+        )}
       </header>
 
       {frames.length > 0 ? (

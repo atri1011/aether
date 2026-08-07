@@ -213,4 +213,5 @@ export interface WhosRankingActress {
   name: string
   avatarUrl: string
   path?: string
+  videoCount?: number | null
 }

@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import type { WhosFrame } from '../types'
 import { useLocale } from '../context'
 import { FrameCard } from '../components/FrameCard'
+import { frameDetailHeading, frameDetailSub } from '../lib/whosDisplay'
 
 export function FrameDetailPage() {
   const { id = '' } = useParams()
@@ -58,6 +59,8 @@ export function FrameDetailPage() {
   }
 
   const watchId = item.watchId || item.code
+  const heading = frameDetailHeading(item)
+  const sub = frameDetailSub(item)
 
   return (
     <div className="page frame-detail-page">
@@ -70,13 +73,14 @@ export function FrameDetailPage() {
       <div className="frame-detail">
         <div className="frame-detail-media">
           {item.imageUrl ? (
-            <img src={item.imageUrl} alt={item.title} />
+            <img src={item.imageUrl} alt={heading} />
           ) : (
             <div className="frame-card-placeholder" />
           )}
         </div>
         <aside className="frame-detail-side">
-          <h1 className="page-title">{item.title || item.code}</h1>
+          <h1 className="page-title">{heading}</h1>
+          {sub ? <p className="page-sub frame-detail-sub">{sub}</p> : null}
           <dl className="meta-list">
             {item.code ? (
               <>

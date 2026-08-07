@@ -846,31 +846,69 @@ def parse_ranking_videos(html: str) -> list[dict]:
 
 
 def parse_ranking_actresses(html: str) -> list[dict]:
+    """Parse /ranking/actress cards.
+
+    Card text nodes often end with work counts like ``2437 部作品`` / ``2437 videos``.
+    Prefer a real name text; fall back to URL-decoded slug (usually the JP name).
+    """
     items: list[dict] = []
     seen: set[str] = set()
+    count_re = re.compile(
+        r"^\d[\d,]*(?:\.\d+)?\s*(?:部作品|作品|videos?|titles?|films?)$",
+        re.I,
+    )
+    rank_re = re.compile(r"^(?:#?\d+|第\s*\d+\s*名)$")
+
+    def _is_noise(t: str) -> bool:
+        if not t or t.isdigit():
+            return True
+        if count_re.match(t):
+            return True
+        if rank_re.match(t):
+            return True
+        return False
+
     for m in re.finditer(
         r'href="(/actresses/([^"#?]+))"[^>]*>([\s\S]{0,1200}?)</a>',
         html or "",
         re.I,
     ):
-        slug = m.group(2)
+        raw_slug = m.group(2)
+        try:
+            from urllib.parse import unquote
+
+            slug = unquote(raw_slug)
+        except Exception:
+            slug = raw_slug
         if slug in seen or slug in {"", "ranking"}:
             continue
         block = m.group(0)
-        name = _clean(
-            re.sub(
-                r"<[^>]+>",
-                "",
-                re.search(r">([^<]{1,40})</", block + "</").group(1)
-                if re.search(r">([^<]{1,40})</", block + "</")
-                else slug,
-            )
-        )
-        # better: last text node
         texts = [_clean(t) for t in re.findall(r">([^<]+)<", block)]
-        texts = [t for t in texts if t and not t.isdigit()]
-        if texts:
-            name = texts[-1] if len(texts[-1]) < 40 else texts[0]
+        texts = [t for t in texts if t]
+        video_count = None
+        for t in texts:
+            cm = re.match(
+                r"^([\d,]+)\s*(?:部作品|作品|videos?|titles?|films?)$",
+                t,
+                re.I,
+            )
+            if cm:
+                try:
+                    video_count = int(cm.group(1).replace(",", ""))
+                except ValueError:
+                    pass
+                break
+        name_candidates = [t for t in texts if not _is_noise(t) and len(t) < 40]
+        # Prefer a CJK / mixed human name over generic labels
+        name = ""
+        for t in name_candidates:
+            if re.search(r"[\u3040-\u30ff\u3400-\u9fff]", t):
+                name = t
+                break
+        if not name and name_candidates:
+            name = name_candidates[0]
+        if not name or count_re.match(name):
+            name = slug
         img_m = re.search(
             r'(?:src|data-src)="(https?://[^"]+actress[^"]+)"',
             block,
@@ -887,15 +925,16 @@ def parse_ranking_actresses(html: str) -> list[dict]:
             # skip pure nav links without avatar context
             if "avatar" not in block and "rounded-full" not in block:
                 continue
-        items.append(
-            {
-                "rank": len(items) + 1,
-                "slug": slug,
-                "name": name or slug,
-                "avatarUrl": avatar,
-                "path": m.group(1),
-            }
-        )
+        row = {
+            "rank": len(items) + 1,
+            "slug": slug,
+            "name": name or slug,
+            "avatarUrl": avatar,
+            "path": m.group(1),
+        }
+        if video_count is not None:
+            row["videoCount"] = video_count
+        items.append(row)
         seen.add(slug)
         if len(items) >= 100:
             break

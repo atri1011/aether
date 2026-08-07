@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import type { WhosHotFrame, WhosRankingActress, WhosRankingVideo } from '../types'
 import { useLocale } from '../context'
-import { VideoCard } from '../components/VideoCard'
 import { ActressCard } from '../components/ActressCard'
 import { VideoSkeletonGrid } from '../components/Skeleton'
 
@@ -15,7 +14,7 @@ function HotFramesRail({
   label: string
 }) {
   if (!frames.length) return null
-  // Show up to 6 thumbs in a 3-col grid (same density as whos.tv)
+  // Show up to 6 thumbs (same density as whos.tv)
   const shown = frames.slice(0, 6)
   return (
     <div className="ranking-hot-frames">
@@ -42,6 +41,50 @@ function HotFramesRail({
         ))}
       </div>
     </div>
+  )
+}
+
+function RankingVideoEntry({
+  video,
+  index,
+}: {
+  video: WhosRankingVideo
+  index: number
+}) {
+  const to = `/v/${encodeURIComponent(video.id)}`
+  const code = video.code || video.id
+  const title = video.title || code
+  const actress = video.actresses?.[0]
+
+  return (
+    <Link
+      to={to}
+      className="ranking-video-entry"
+      style={{ ['--i' as string]: Math.min(index, 12) }}
+      title={title}
+    >
+      <div className="ranking-video-poster">
+        {video.coverUrl ? (
+          <img
+            src={video.coverUrl}
+            alt=""
+            loading={index < 6 ? 'eager' : 'lazy'}
+            decoding="async"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <div className="frame-card-placeholder" />
+        )}
+      </div>
+      <div className="ranking-video-body">
+        <p className="ranking-video-code">{code}</p>
+        <p className="ranking-video-title">{title}</p>
+        {actress ? <p className="ranking-video-sub">{actress}</p> : null}
+        {video.rating != null ? (
+          <div className="ranking-rating">★ {video.rating.toFixed(1)}</div>
+        ) : null}
+      </div>
+    </Link>
   )
 }
 
@@ -147,14 +190,7 @@ export function WhosRankingPage() {
                 <div className="ranking-badge" data-top={v.rank != null && v.rank <= 3 ? '1' : '0'}>
                   {v.rank ?? i + 1}
                 </div>
-                <div className="ranking-video-main">
-                  <div className="ranking-video-card">
-                    <VideoCard video={v} index={i} />
-                  </div>
-                  {v.rating != null ? (
-                    <div className="ranking-rating">★ {v.rating.toFixed(1)}</div>
-                  ) : null}
-                </div>
+                <RankingVideoEntry video={v} index={i} />
                 <HotFramesRail frames={hot} label={tr('hotFrames')} />
               </div>
             )
@@ -163,20 +199,27 @@ export function WhosRankingPage() {
       ) : null}
 
       {!loading && kind === 'actress' && actresses.length > 0 ? (
-        <div className="actress-grid">
-          {actresses.map((a) => (
-            <div key={a.slug} className="ranking-actress-wrap">
-              <div className="ranking-badge">{a.rank}</div>
+        <div className="actress-grid ranking">
+          {actresses.map((a, i) => {
+            const rawName = String(a.name || '').trim()
+            const name =
+              !rawName || /^\d[\d,]*\s*(部作品|作品|videos?|titles?)$/i.test(rawName)
+                ? a.slug || rawName
+                : rawName
+            return (
               <ActressCard
+                key={a.slug}
+                index={i}
                 actress={{
                   slug: a.slug,
-                  name: a.name,
+                  name,
                   avatarUrl: a.avatarUrl,
                   rank: a.rank,
+                  videoCount: a.videoCount ?? undefined,
                 }}
               />
-            </div>
-          ))}
+            )
+          })}
         </div>
       ) : null}
 
