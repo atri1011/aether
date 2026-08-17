@@ -23,7 +23,8 @@ except ImportError:
 from curl_opts import CURL_OPTS  # type: ignore
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8790
-SESSION = requests.Session()
+# Session.get() does not accept curl_options; configure the reusable session once.
+SESSION = requests.Session(curl_options=CURL_OPTS or None)
 # Prefer chrome124 — aligns with list/resolve scrapers (OPT-18); chrome131 often CF-challenged on MissAV origin headers.
 IMPERSONATE = "chrome124"
 HEADERS = {
@@ -49,6 +50,17 @@ def allowed(url: str) -> bool:
         return any(host == s or host.endswith("." + s) for s in ALLOW_SUFFIXES)
     except Exception:
         return False
+
+
+def _fetch_upstream(url: str, *, stream: bool = False):
+    return SESSION.get(
+        url,
+        impersonate=IMPERSONATE,
+        headers=HEADERS,
+        timeout=40,
+        allow_redirects=True,
+        stream=stream,
+    )
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -86,16 +98,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, b"bad url", "text/plain")
                 return
             try:
-                r = SESSION.get(
-                    url,
-                    impersonate=IMPERSONATE,
-                    headers=HEADERS,
-                    timeout=40,
-                    allow_redirects=True,
-                    stream=True,
-                    # Force IPv4 — dual-stack CF AAAA often RST (curl 35) on CN paths
-                    curl_options=CURL_OPTS or None,
-                )
+                r = _fetch_upstream(url, stream=True)
                 ctype = r.headers.get("content-type") or "application/octet-stream"
                 status = int(r.status_code or 502)
                 if status != 200:
@@ -151,15 +154,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            r = SESSION.get(
-                url,
-                impersonate=IMPERSONATE,
-                headers=HEADERS,
-                timeout=40,
-                allow_redirects=True,
-                # Force IPv4 — dual-stack CF AAAA often RST (curl 35) on CN paths
-                curl_options=CURL_OPTS or None,
-            )
+            r = _fetch_upstream(url)
             ctype = r.headers.get("content-type") or "application/octet-stream"
             if r.status_code != 200:
                 self._send(r.status_code, r.content[:500] or b"error", "text/plain")
