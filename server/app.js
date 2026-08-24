@@ -22,6 +22,7 @@ import actressesRouter from './routes/actresses.js'
 import catalogRouter from './routes/catalog.js'
 import healthRouter from './routes/health.js'
 import homeRouter from './routes/home.js'
+import subtitlesRouter from './routes/subtitles.js'
 import videoRouter from './routes/video.js'
 import whosRouter from './routes/whos.js'
 
@@ -50,6 +51,7 @@ export function createApp() {
   app.use(videoRouter)
   app.use(actressesRouter)
   app.use(whosRouter)
+  app.use(subtitlesRouter)
 
   // production static
   const dist = path.join(__dirname, '..', 'dist')

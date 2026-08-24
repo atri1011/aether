@@ -8,6 +8,7 @@ import type {
   HomePayload,
   Locale,
   PagedResult,
+  SubtitleSearchResult,
   VideoDetail,
   VideoFilterOptions,
   VideoListQuery,
@@ -266,6 +267,17 @@ export const api = {
     const data = await res.json()
     if (!res.ok) throw new Error(data?.error || res.statusText)
     return data as VideoDetail
+  },
+  // ── external Chinese subtitles (SUB-01) ─────────────────
+  subtitleSearch: (id: string, locale: Locale, durationSec = 0, opts?: FetchOpts) => {
+    const p = new URLSearchParams()
+    p.set('locale', locale)
+    if (durationSec > 0) p.set('durationSec', String(Math.round(durationSec)))
+    return getJson<SubtitleSearchResult>(
+      `/api/video/${encodeURIComponent(id)}/subtitles?${p.toString()}`,
+      locale,
+      opts,
+    )
   },
   // ── whos.tv: frames / topics / ranking ─────────────────
   whosFrameCategories: (locale: Locale, opts?: FetchOpts) =>

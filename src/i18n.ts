@@ -110,6 +110,11 @@ const dict = {
     relatedFrames: '相关帧',
     codeLabel: '番号',
     timestampLabel: '时间点',
+    subtitles: '字幕',
+    subtitlesOff: '关闭',
+    subtitleLoading: '字幕加载中…',
+    subtitleNone: '未找到中文字幕',
+    subtitleMachine: '机器翻译',
   },
   en: {
     brand: 'AETHER',
@@ -220,6 +225,11 @@ const dict = {
     relatedFrames: 'Related frames',
     codeLabel: 'Code',
     timestampLabel: 'Timestamp',
+    subtitles: 'Subtitles',
+    subtitlesOff: 'Off',
+    subtitleLoading: 'Loading subtitles…',
+    subtitleNone: 'No Chinese subtitles found',
+    subtitleMachine: 'machine-translated',
   },
 } as const
 

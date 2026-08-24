@@ -8,6 +8,8 @@ POST /scrape/actresses
 POST /scrape/catalog
 POST /scrape/whos
 POST /resolve
+POST /subtitles/search   { code, durationSec? }
+POST /subtitles/fetch    { url }
 GET  /health
 """
 from __future__ import annotations
@@ -48,11 +50,12 @@ def _import_scrapers():
     import scrape_catalog
     import scrape_whos
     import resolve_stream
+    import subtitles
 
-    return scrape_list, scrape_actresses, scrape_catalog, scrape_whos, resolve_stream
+    return scrape_list, scrape_actresses, scrape_catalog, scrape_whos, resolve_stream, subtitles
 
 
-scrape_list, scrape_actresses, scrape_catalog, scrape_whos, resolve_stream = (
+scrape_list, scrape_actresses, scrape_catalog, scrape_whos, resolve_stream, subtitles = (
     _import_scrapers()
 )
 
@@ -195,12 +198,32 @@ def handle_resolve(body: dict) -> dict:
     return resolve_stream.resolve(video_id, dm=dm)
 
 
+def handle_subtitles_search(body: dict) -> dict:
+    code = str(body.get("code") or "").strip()
+    if not code:
+        return {"ok": False, "error": "code required"}
+    try:
+        duration = int(body.get("durationSec") or 0)
+    except (TypeError, ValueError):
+        duration = 0
+    return subtitles.search(code, duration)
+
+
+def handle_subtitles_fetch(body: dict) -> dict:
+    url = str(body.get("url") or "").strip()
+    if not url:
+        return {"ok": False, "error": "url required"}
+    return subtitles.fetch_text(url)
+
+
 ROUTES = {
     "/scrape/list": handle_list,
     "/scrape/actresses": handle_actresses,
     "/scrape/catalog": handle_catalog,
     "/scrape/whos": handle_whos,
     "/resolve": handle_resolve,
+    "/subtitles/search": handle_subtitles_search,
+    "/subtitles/fetch": handle_subtitles_fetch,
 }
 
 

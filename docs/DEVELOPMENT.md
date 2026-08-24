@@ -32,7 +32,7 @@ Node Express (server/index.js :8787)
   ├─ requireAuth（除 health / auth）
   ├─ 磁盘缓存 + singleflight + SWR
   ├─ Recombee 签名请求
-  ├─ pybridge → server/py/*.py（列表 / 女优 / 目录 / 解析流）
+  ├─ pybridge → server/py/*.py（列表 / 女优 / 目录 / 解析流 / 外部字幕）
   ├─ mediaWorker → media_server.py :18790（HLS 上游拉取）
   └─ hlsProxy → GET /api/hls?url=
        仅 allowlist: surrit / fourhoi / missav.*
@@ -119,14 +119,15 @@ aether/
 │   ├── videoFilters.js / stream.js / pybridge.js / hlsProxy.js
 │   ├── mediaWorker.js      # media_server :18790（含 /fetch_stream）
 │   ├── scrapeWorker.js     # scrape_server :18791
-│   ├── routes/             # home / catalog / video / actresses / whos / health
-│   ├── services/           # cacheWrap / scrapeMap / videoBundle / warm / metrics
+│   ├── routes/             # home / catalog / video / actresses / whos / subtitles / health
+│   ├── services/           # cacheWrap / scrapeMap / videoBundle / warm / metrics / subtitles
 │   ├── middleware/         # security / rateLimit
 │   ├── util/               # locale / sendError
 │   └── py/
 │       ├── scrape_list.py / scrape_actresses.py / scrape_catalog.py
 │       ├── scrape_whos.py  # whos.tv 帧探索 / 专题 / 排行榜
 │       ├── resolve_stream.py / scrape_server.py
+│       ├── subtitles.py    # 外部中文字幕搜索（Xunlei + SubtitleCat）/ 抓取
 │       ├── media_server.py / fetch_media.py
 ├── design-system/ / deploy/ / docs/
 ├── Dockerfile / docker-compose.yml / vite.config.ts / package.json
@@ -205,6 +206,8 @@ curl -s http://127.0.0.1:8787/api/health
   - scrape 一页约 12 条，不是客户端 `pageSize` 24  
   - deps 变化时 abort 上一次请求（OPT-08）
 - 观看页：先拉 meta，无 `stream.masterUrl` 时自动 `resolve-stream`（OPT-07）
+- 外部字幕：`hasChineseSubtitle === false` 时自动 `subtitleSearch`；候选经
+  `/api/subtitle?url=` 按需转 VTT（见 7.9）
 
 ### 6.3 播放器
 
@@ -212,6 +215,9 @@ curl -s http://127.0.0.1:8787/api/health
 - 流地址必须是**同源相对路径** `/api/hls?url=...`  
   绝对地址 `http://host:8787/...` 在 Vite 开发下会丢 session cookie → `manifestLoadError`
 - 画质偏好：`localStorage` key `aether.hlsQuality`
+- 字幕：`subtitles` prop（`{src,label,lang,machine?}[]`，src 为同源 `/api/subtitle` URL）。
+  控制条右侧 CC 按钮弹出选择菜单；`<track>` 由 React 复用，开关依赖
+  `track.mode` 同步 effect（不能只靠 `default` 属性）
 
 ### 6.4 i18n
 
@@ -288,6 +294,7 @@ TTL（毫秒）在 `config.ttl`：`home` / `search` / `browse` / `video` / `stre
 | `pyScrapeActresses*` | `scrape_actresses.py` |
 | `pyScrapeCatalog` | `scrape_catalog.py` |
 | `pyResolveStream` | `resolve_stream.py` |
+| `pySubtitleSearch` / `pySubtitleFetch` | `subtitles.py`（RPC `/subtitles/*`，spawn 回退同脚本） |
 
 约定：脚本 stdout 打印 **一行 JSON**；`ok: false` 或非 0 退出由 Node 转成错误。超时默认约 45–60s。
 
@@ -302,11 +309,25 @@ Media：**长驻** `media_server.py`，失败才 `fetch_media.py` one-shot。
 
 `toProxiedStream` 保证返回给浏览器的永远是相对路径。
 
-### 7.7 启动预热
+### 7.7 外部中文字幕（SUB-01，`routes/subtitles.js` + `services/subtitles.js` + `py/subtitles.py`）
+
+当 `video.hasChineseSubtitle === false` 时，观看页自动探测外部字幕；上游为
+Xunlei oracle（人工上传 SRT，主源）与 SubtitleCat（机器翻译 HTML 抓取，回退）。
+
+| 接口 | 行为 |
+|------|------|
+| `GET /api/video/:id/subtitles?durationSec=` | 番号归一化（去 `-chinese-subtitle` / `-uncensored-leak` 等后缀）→ 搜候选 → 按时长差 ≤5s+40/≤60s+25/≤180s+10、xunlei+20、zh-CN+8/zh-TW+3 排序。缓存 30min（含空结果），key `subs:v1:search:*` |
+| `GET /api/subtitle?url=` | host 后缀 allowlist（xunlei.com / geilijiasu.com / subtitlecat.com，Node 与 Python 双层校验）→ Python 抓取（≤2MB）+ 编码链解码 → SRT/ASS→WebVTT。缓存 7 天按 URL hash，key `subs:v1:text:*` |
+
+- 文本只在用户选中某条候选时才拉取；错误码：`CONFIG` 400（host 不在 allowlist）、
+  `PARSE` 422（无法识别的字幕格式）、其余 503 `UPSTREAM`
+- 前端只传同源 `/api/subtitle?url=…` 给 `<track>`；播放器 CC 菜单选择后由浏览器加载
+
+### 7.8 启动预热
 
 `warmPopularCategories()`：启动约 3s 后错峰抓热门 slug，填满磁盘缓存。失败只打 log，不阻塞 listen。
 
-### 7.8 新增 / 修改 API 检查清单
+### 7.9 新增 / 修改 API 检查清单
 
 1. 路由写在 `server/index.js`（或拆出后挂到同一 app）
 2. 需要缓存 → `withCache` + **版本化 key** + 合适 TTL
@@ -340,6 +361,8 @@ GET  /api/c/:kind/:name
 GET  /api/video/:id
 POST /api/video/:id/resolve-stream
 GET  /api/video/:id/related
+GET  /api/video/:id/subtitles?durationSec=
+GET  /api/subtitle?url=
 GET  /api/actresses
 GET  /api/actresses/filters
 GET  /api/actresses/ranking
@@ -383,6 +406,8 @@ GET  /api/whos/ranking?kind=video|actress
 2. Stream resolve：`resolve_stream.py` 用 curl_cffi；**优先** Recombee `values.dm` 拼 `https://missav.ws/dm{N}/{id}`（VPS 上 bare `/{id}` 常被 CF 403，而 dm 分片可过），再回退 bare/locale；解析 packed m3u8 / surrit seek UUID
 3. 响应里 `stream.masterUrl` 已是 `/api/hls?url=…`
 4. 失败可 `POST …/resolve-stream` 强制重解析，或手动贴 UUID/m3u8（前端仍走代理）
+5. `hasChineseSubtitle === false` → 前端 `GET /api/video/:id/subtitles`，CC 菜单选中后
+   `<track src="/api/subtitle?url=…">` 按需取 VTT（见 7.7）
 
 ### 9.4 女优详情
 
@@ -410,6 +435,8 @@ GET  /api/whos/ranking?kind=video|actress
 | Recombee 空 | token / 签名 / filter 语法；对比 `recombee.js` 与 api-contract；CN 名精确 filter 空属预期 |
 | Docker 无流 | 容器内 media worker 日志；`MEDIA_PORT` 未被占；`curl_cffi` 是否装上 |
 | 缓存「改代码不生效」 | key 版本未 bump；或 SWR 一直返回 stale |
+| 观看页没有 CC 按钮 | 仅 `hasChineseSubtitle === false` 时探测；看 `/api/video/:id/subtitles` 是否空 / 503；上游被限流属预期 |
+| 字幕选中但不显示 | VTT 是否 422 PARSE（格式不识别）；`/api/subtitle` 响应头 `text/vtt`；host 不在 allowlist 会 400 |
 
 有用的响应头：
 

@@ -90,8 +90,8 @@ Node Express (server/index.js → app.js :8787)
 |--------|------|
 | `index.js` | listen, warm workers, warm categories, shutdown |
 | `app.js` | express + middleware + mount `routes/*` + static SPA |
-| `routes/*` | home, catalog, video, actresses, health/admin stats |
-| `services/*` | cacheWrap, scrapeMap (+ enrich cache), videoBundle, warm, metrics, homeRails |
+| `routes/*` | home, catalog, video, actresses, whos, subtitles, health/admin stats |
+| `services/*` | cacheWrap, scrapeMap (+ enrich cache), videoBundle, warm, metrics, homeRails, subtitles |
 | `middleware/*` | security headers, CORS, tiered rate limit |
 | `config.js` | Port, cache L1/GC, Recombee, Miss bases, auth, feature flags |
 | `auth.js` | HMAC session cookie, timing-safe password, per-IP login rate limit |
@@ -102,7 +102,7 @@ Node Express (server/index.js → app.js :8787)
 
 **Python scripts (`server/py/`):**
 
-- `scrape_list.py` / `scrape_actresses.py` / `scrape_catalog.py` / `scrape_whos.py` / `resolve_stream.py` — CLI + importable by worker
+- `scrape_list.py` / `scrape_actresses.py` / `scrape_catalog.py` / `scrape_whos.py` / `resolve_stream.py` / `subtitles.py` — CLI + importable by worker
 - `scrape_server.py` — long-lived scrape RPC `:18791`
 - `media_server.py` — long-lived `/fetch` + `/fetch_stream` `:18790`
 - `fetch_media.py` — one-shot media fallback
@@ -129,6 +129,8 @@ GET  /api/genres  /api/makers
 GET  /api/c/:slug  |  /api/c/:kind/:name
 GET  /api/video/:id  |  /related
 POST /api/video/:id/resolve-stream
+GET  /api/video/:id/subtitles?durationSec=   # external zh subs when hasChineseSubtitle=false
+GET  /api/subtitle?url=                       # same-origin WebVTT (host allowlist)
 GET  /api/actresses  /filters  /ranking  /search  /:slug
 GET  /api/whos/frames[/categories|/:id]  /topics[/:id]  /ranking
 ```

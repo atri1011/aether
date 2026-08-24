@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, formatDate, formatDuration, isAbortError } from '../lib/api'
-import type { VideoDetail } from '../types'
+import type { SubtitleTrack, VideoDetail } from '../types'
 import { useLocale } from '../context'
-import { Player } from '../components/Player'
+import { Player, type SubtitleOption } from '../components/Player'
 import { VideoGrid } from '../components/VideoGrid'
 import { WatchSkeleton } from '../components/Skeleton'
 
@@ -87,6 +87,16 @@ function toMasterUrl(input: string) {
   return `/api/hls?url=${encodeURIComponent(direct)}`
 }
 
+/** Candidate → player track (text fetched lazily via /api/subtitle on use). */
+function toSubtitleOptions(items: SubtitleTrack[]): SubtitleOption[] {
+  return items.slice(0, 8).map((it) => ({
+    src: `/api/subtitle?url=${encodeURIComponent(it.url)}`,
+    label: it.name,
+    lang: it.lang || 'zh',
+    machine: it.note === 'machine-translated',
+  }))
+}
+
 export function WatchPage() {
   const { id = '' } = useParams()
   const { locale, tr } = useLocale()
@@ -97,6 +107,7 @@ export function WatchPage() {
   const [theatre, setTheatre] = useState(false)
   const [manual, setManual] = useState('')
   const [overrideSrc, setOverrideSrc] = useState<string | null>(null)
+  const [subtitleTracks, setSubtitleTracks] = useState<SubtitleOption[] | null>(null)
 
   // Meta first (OPT-07); abort on id/locale change (OPT-08)
   useEffect(() => {
@@ -105,6 +116,7 @@ export function WatchPage() {
     setError(null)
     setOverrideSrc(null)
     setStreamResolving(false)
+    setSubtitleTracks(null)
     api
       .video(id, locale, { signal: ac.signal })
       .then((d) => {
@@ -163,6 +175,29 @@ export function WatchPage() {
     return video?.stream?.masterUrl || null
   }, [overrideSrc, video])
 
+  // Probe external Chinese subs when the catalog says none are bundled
+  const probeSubtitles = !loading && !!video && !video.hasChineseSubtitle
+  useEffect(() => {
+    setSubtitleTracks(null)
+    if (!probeSubtitles || !id) return
+    const ac = new AbortController()
+    api
+      .subtitleSearch(id, locale, video.durationSec || 0, { signal: ac.signal })
+      .then((res) => {
+        if (!ac.signal.aborted) setSubtitleTracks(toSubtitleOptions(res.items || []))
+      })
+      .catch((e: Error) => {
+        // No candidates / upstream busy → just hide the CC affordance
+        if (isAbortError(e) || ac.signal.aborted) return
+        setSubtitleTracks([])
+      })
+    return () => {
+      ac.abort()
+    }
+    // `video` is gated by probeSubtitles; only its duration feeds the request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run on id/locale/duration change only
+  }, [probeSubtitles, id, locale, video?.durationSec])
+
   if (loading) return <WatchSkeleton />
   if (error) return <div className="state error">{error}</div>
   if (!video) return <div className="state">{tr('empty')}</div>
@@ -176,6 +211,7 @@ export function WatchPage() {
             poster={video.coverUrl}
             theatre={theatre}
             onToggleTheatre={() => setTheatre((v) => !v)}
+            subtitles={probeSubtitles ? subtitleTracks || [] : undefined}
             labels={{
               theatre: tr('theatre'),
               exitTheatre: tr('exitTheatre'),
@@ -192,6 +228,9 @@ export function WatchPage() {
               seekFwd1m: tr('seekFwd1m'),
               seekFwd10m: tr('seekFwd10m'),
               speedBoost: tr('speedBoost'),
+              subtitles: tr('subtitles'),
+              subtitlesOff: tr('subtitlesOff'),
+              subtitleMachine: tr('subtitleMachine'),
             }}
           />
           {!src && (
@@ -203,6 +242,9 @@ export function WatchPage() {
               <br />
               {tr('streamHint')}
             </p>
+          )}
+          {probeSubtitles && subtitleTracks && subtitleTracks.length === 0 && (
+            <p className="card-sub stream-status player-subtitle-none">{tr('subtitleNone')}</p>
           )}
           {/* Collapsed by default on mobile — power-user path, not primary chrome */}
           <details className="manual-stream-details" open={!src ? true : undefined}>

@@ -34,6 +34,24 @@ export interface VideoDetail extends VideoSummary {
   streamStatus?: 'pending' | 'miss' | 'cached' | 'resolved' | 'error'
 }
 
+/** External Chinese-subtitle candidate (SUB-01) — metadata only; text loads on use. */
+export interface SubtitleTrack {
+  source: 'xunlei' | 'subtitlecat'
+  sourceId: string
+  name: string
+  url: string
+  ext: string
+  durationSec: number
+  lang: string
+  note?: string
+}
+
+export interface SubtitleSearchResult {
+  code: string
+  durationSec: number
+  items: SubtitleTrack[]
+}
+
 export interface PagedResult<T> {
   items: T[]
   recommId?: string

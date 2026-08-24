@@ -276,7 +276,8 @@ function whosLocale(locale) {
 export function pyScrapeWhos(mode, opts = {}) {
   const m = String(mode || 'frames').toLowerCase()
   const loc = whosLocale(opts.locale)
-  const body = { mode: m, locale: loc, ...opts, locale: loc }
+  const body = { mode: m, locale: loc, ...opts }
+  body.locale = loc
   const dash = (v) => (v == null || v === '' ? '-' : String(v))
   let args
   if (m === 'categories' || m === 'cats') {
@@ -304,5 +305,31 @@ export function pyScrapeWhos(mode, opts = {}) {
     '/scrape/whos',
     body,
     () => runPython('scrape_whos.py', args, { timeoutMs: 55000 }),
+  )
+}
+
+/** External Chinese-subtitle lookup — see subtitles.py (SUB-01). */
+export function pySubtitleSearch(code, durationSec = 0) {
+  const c = String(code || '').trim()
+  const dur = Math.max(0, Math.trunc(Number(durationSec) || 0))
+  return withWorker(
+    '/subtitles/search',
+    { code: c, durationSec: dur },
+    () =>
+      runPython(
+        'subtitles.py',
+        ['search', c, ...(dur ? [String(dur)] : [])],
+        { timeoutMs: 45000 },
+      ),
+  )
+}
+
+/** Download + decode one subtitle file (host allowlist lives in subtitles.py). */
+export function pySubtitleFetch(url) {
+  const u = String(url || '').trim()
+  return withWorker(
+    '/subtitles/fetch',
+    { url: u },
+    () => runPython('subtitles.py', ['fetch', u], { timeoutMs: 45000 }),
   )
 }

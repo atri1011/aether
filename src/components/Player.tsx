@@ -12,11 +12,21 @@ import {
 } from 'react'
 import Hls from 'hls.js'
 
+export type SubtitleOption = {
+  /** Same-origin /api/subtitle URL serving WebVTT */
+  src: string
+  label: string
+  lang: string
+  /** Machine-translated flag — shown as a dim hint in the menu */
+  machine?: boolean
+}
+
 type Props = {
   src: string | null
   poster?: string
   theatre: boolean
   onToggleTheatre: () => void
+  subtitles?: SubtitleOption[]
   labels: {
     theatre: string
     exitTheatre: string
@@ -33,6 +43,10 @@ type Props = {
     seekFwd1m: string
     seekFwd10m: string
     speedBoost: string
+    subtitles: string
+    subtitlesOff: string
+    subtitleMachine?: string
+    subtitleLoading?: string
   }
 }
 
@@ -183,13 +197,22 @@ async function exitFs() {
   doc.webkitExitFullscreen?.()
 }
 
-export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props) {
+export function Player({
+  src,
+  poster,
+  theatre,
+  onToggleTheatre,
+  subtitles = [],
+  labels,
+}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [levels, setLevels] = useState<LevelOption[]>([])
   // -1 = Auto ABR; otherwise hls level index
   const [selectedLevel, setSelectedLevel] = useState<number>(-1)
+  // -1 = subtitles off; otherwise index into `subtitles`
+  const [selectedSubtitle, setSelectedSubtitle] = useState<number>(-1)
   const [activeHeight, setActiveHeight] = useState<number>(0)
   const [paused, setPaused] = useState(true)
   const [currentTime, setCurrentTime] = useState(0)
@@ -212,6 +235,8 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
   const surfaceTapCountRef = useRef(0)
   const surfaceTapTimerRef = useRef<number | null>(null)
   const [boosting, setBoosting] = useState(false)
+  const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false)
+  const subtitleWrapRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     controlsVisibleRef.current = controlsVisible
@@ -595,6 +620,36 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
     endSpeedBoost()
   }, [src, endSpeedBoost])
 
+  // New video / track list → drop any selected external track (per-video)
+  useEffect(() => {
+    setSelectedSubtitle(-1)
+    setSubtitleMenuOpen(false)
+  }, [src])
+
+  // Chrome hidden ⇒ the popover would be invisible; reset so reopening chrome starts closed.
+  useEffect(() => {
+    if (!controlsVisible) setSubtitleMenuOpen(false)
+  }, [controlsVisible])
+
+  // Close the subtitle popover on outside pointer / Escape
+  useEffect(() => {
+    if (!subtitleMenuOpen) return
+    const onDocPointer = (e: Event) => {
+      if (subtitleWrapRef.current && !subtitleWrapRef.current.contains(e.target as Node)) {
+        setSubtitleMenuOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSubtitleMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onDocPointer, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDocPointer, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [subtitleMenuOpen])
+
   const onQualityChange = useCallback(
     (value: number) => {
       const hls = hlsRef.current
@@ -613,6 +668,19 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
     },
     [applyLevel, levels],
   )
+
+  const subtitleTracksRef = useRef<HTMLTrackElement | null>(null)
+  useEffect(() => {
+    const track = subtitleTracksRef.current
+    if (!track) return
+    // `default` loads + shows the track; React reuses the element across src
+    // swaps, so force mode='disabled' when the user turns subtitles off.
+    if (selectedSubtitle < 0 || !subtitles[selectedSubtitle]) {
+      track.track.mode = 'disabled'
+    } else {
+      track.track.mode = 'showing'
+    }
+  }, [selectedSubtitle, subtitles])
 
   useEffect(() => {
     const video = videoRef.current
@@ -758,7 +826,19 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
           // Custom chrome replaces native controls so we can put +10s beside play.
           // @ts-expect-error referrerPolicy is valid on HTMLVideoElement in browsers
           referrerPolicy="no-referrer"
-        />
+          crossOrigin="anonymous"
+        >
+          {selectedSubtitle >= 0 && subtitles[selectedSubtitle] && (
+            <track
+              ref={subtitleTracksRef}
+              kind="subtitles"
+              src={subtitles[selectedSubtitle].src}
+              srcLang={subtitles[selectedSubtitle].lang || 'zh'}
+              label={subtitles[selectedSubtitle].label}
+              default
+            />
+          )}
+        </video>
         {/*
           Transparent hold target above the picture (bottom strip left for control bar).
           Mobile long-press on bare <video> would otherwise open callout / cancel 2×.
@@ -853,6 +933,98 @@ export function Player({ src, poster, theatre, onToggleTheatre, labels }: Props)
               </span>
             </div>
             <div className="player-controls-right">
+              {subtitles.length > 0 && (
+                <div className="player-subtitle-wrap" ref={subtitleWrapRef}>
+                  <button
+                    type="button"
+                    className={`player-ctrl-btn player-subtitle-btn${
+                      selectedSubtitle >= 0 ? ' is-active' : ''
+                    }${subtitleMenuOpen ? ' is-open' : ''}`}
+                    disabled={!src}
+                    title={labels.subtitles}
+                    aria-label={labels.subtitles}
+                    aria-haspopup="menu"
+                    aria-expanded={subtitleMenuOpen}
+                    onClick={() => {
+                      setSubtitleMenuOpen((v) => !v)
+                      revealControls()
+                    }}
+                  >
+                    <span className="player-ctrl-icon" aria-hidden>
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm1.5 5.5v1.7h3.2v-1.7H5.5zm0 3.3v1.7h5.4v-1.7H5.5zm7.3 0v1.7h5.7v-1.7h-5.7zm2-3.3v1.7h3.7v-1.7h-3.7z" />
+                      </svg>
+                    </span>
+                  </button>
+                  {subtitleMenuOpen && (
+                    <div className="player-subtitle-menu" role="menu">
+                      <div className="player-subtitle-menu-title">{labels.subtitles}</div>
+                      {subtitles.map((sub, i) => (
+                        <button
+                          key={`${sub.src}-${i}`}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={selectedSubtitle === i}
+                          className={`player-subtitle-item${
+                            selectedSubtitle === i ? ' is-active' : ''
+                          }`}
+                          onClick={() => {
+                            setSelectedSubtitle(i)
+                            setSubtitleMenuOpen(false)
+                            revealControls()
+                          }}
+                        >
+                          <span className="player-subtitle-item-label">{sub.label}</span>
+                          {sub.machine && labels.subtitleMachine && (
+                            <span className="player-subtitle-item-hint">
+                              {labels.subtitleMachine}
+                            </span>
+                          )}
+                          {selectedSubtitle === i && (
+                            <svg
+                              className="player-subtitle-check"
+                              viewBox="0 0 24 24"
+                              width="14"
+                              height="14"
+                              fill="currentColor"
+                              aria-hidden
+                            >
+                              <path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
+                            </svg>
+                          )}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={selectedSubtitle < 0}
+                        className={`player-subtitle-item${
+                          selectedSubtitle < 0 ? ' is-active' : ''
+                        }`}
+                        onClick={() => {
+                          setSelectedSubtitle(-1)
+                          setSubtitleMenuOpen(false)
+                          revealControls()
+                        }}
+                      >
+                        <span className="player-subtitle-item-label">{labels.subtitlesOff}</span>
+                        {selectedSubtitle < 0 && (
+                          <svg
+                            className="player-subtitle-check"
+                            viewBox="0 0 24 24"
+                            width="14"
+                            height="14"
+                            fill="currentColor"
+                            aria-hidden
+                          >
+                            <path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
               <button
                 type="button"
                 className="player-ctrl-btn"

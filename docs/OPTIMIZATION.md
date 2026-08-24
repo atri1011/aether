@@ -119,6 +119,7 @@ enrich:v1:{id} 新增
 | OPT-13 | done | aether | 2026-07-23 | CSS split |
 | OPT-14 | done | aether | 2026-07-23 | recombee cap |
 | OPT-15 | done | aether | 2026-07-23 | warm backoff + hits |
+| SUB-01 | done | aether | 2026-08-25 | 外部中文字幕：Xunlei + SubtitleCat → VTT（`routes/services/subtitles.js` + `py/subtitles.py`，见 DEVELOPMENT §7.7） |
 
 状态枚举：`todo` | `doing` | `done` | `wontfix` | `blocked`
 
@@ -140,6 +141,7 @@ enrich:v1:{id} 新增
 |------|------|
 | 2026-07-23 | 初版：从代码审阅结论整理 15 项 OPT + 分期与验收 |
 | 2026-07-23 | 全部 OPT-01…15 落地；状态板 → done |
+| 2026-08-25 | SUB-01 外部中文字幕匹配落地（Xunlei oracle 主源 + SubtitleCat 回退） |
 
 ---
 
