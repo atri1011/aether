@@ -444,10 +444,10 @@
   color: var(--accent-soft);
 }
 
-/* Rendered cue text — warm ivory with soft shadow, matches chrome */
+/* Rendered cue text — warm ivory with soft shadow, transparent backdrop */
 video::cue {
   color: #f5ede0;
-  background: rgba(6, 4, 2, 0.62);
+  background: transparent;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 
