@@ -19,18 +19,18 @@
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#0F0F23` | `--color-primary` |
-| On Primary | `#FFFFFF` | `--color-on-primary` |
-| Secondary | `#1E1B4B` | `--color-secondary` |
-| Accent/CTA | `#E11D48` | `--color-accent` |
-| Background | `#000000` | `--color-background` |
-| Foreground | `#F8FAFC` | `--color-foreground` |
-| Muted | `#181818` | `--color-muted` |
-| Border | `#312E81` | `--color-border` |
+| Primary | `#0d0a07` | `--color-primary` |
+| On Primary | `#f5ede0` | `--color-on-primary` |
+| Secondary | `#1c1711` | `--color-secondary` |
+| Accent/CTA | `#e8c07a` | `--color-accent` |
+| Background | `#0d0a07` | `--color-background` |
+| Foreground | `#f5ede0` | `--color-foreground` |
+| Muted | `#15110c` | `--color-muted` |
+| Border | `rgba(245,237,224,0.08)` | `--color-border` |
 | Destructive | `#EF4444` | `--color-destructive` |
-| Ring | `#0F0F23` | `--color-ring` |
+| Ring | `#e8c07a` | `--color-ring` |
 
-**Color Notes:** Cinema dark + play red
+**Color Notes:** Champagne editorial — warm obsidian base + champagne gold accent. Ambient amber + rose-gold whispers.
 
 ### Typography
 
@@ -76,8 +76,8 @@
 ```css
 /* Primary Button */
 .btn-primary {
-  background: #E11D48;
-  color: white;
+  background: linear-gradient(165deg, #e8c07a 0%, #c89a4e 100%);
+  color: #1a140c;
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -93,8 +93,8 @@
 /* Secondary Button */
 .btn-secondary {
   background: transparent;
-  color: #0F0F23;
-  border: 2px solid #0F0F23;
+  color: #f5ede0;
+  border: 2px solid rgba(245, 237, 224, 0.12);
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -107,7 +107,7 @@
 
 ```css
 .card {
-  background: #000000;
+  background: #15110c;
   border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow-md);
@@ -126,16 +126,16 @@
 ```css
 .input {
   padding: 12px 16px;
-  border: 1px solid #E2E8F0;
+  border: 1px solid rgba(245, 237, 224, 0.12);
   border-radius: 8px;
   font-size: 16px;
   transition: border-color 200ms ease;
 }
 
 .input:focus {
-  border-color: #0F0F23;
+  border-color: #e8c07a;
   outline: none;
-  box-shadow: 0 0 0 3px #0F0F2320;
+  box-shadow: 0 0 0 3px rgba(232, 192, 122, 0.22);
 }
 ```
 
@@ -148,7 +148,7 @@
 }
 
 .modal {
-  background: white;
+  background: #15110c;
   border-radius: 16px;
   padding: 32px;
   box-shadow: var(--shadow-xl);

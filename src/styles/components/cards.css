@@ -1,4 +1,4 @@
-/* cards / grid / filters / skeleton */
+﻿/* cards / grid / filters / skeleton */
 /* ── Video grid & cover-first cards ────────────────────── */
 
 .grid {
@@ -11,8 +11,8 @@
   display: block;
   position: relative;
   border-radius: var(--radius);
-  animation: aether-rise 0.48s var(--ease-out-expo) both;
-  animation-delay: calc(min(var(--i, 0), 12) * var(--stagger));
+  animation: aether-rise 0.5s var(--ease-out-quint) both;
+  animation-delay: calc(min(var(--i, 0), 10) * var(--stagger));
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   /* OPT-09: skip layout/paint for off-screen cards in long grids */
@@ -30,21 +30,21 @@
   position: relative;
   aspect-ratio: 2 / 3;
   overflow: hidden;
-  background: linear-gradient(160deg, #1a1e2c, #0e111a);
+  background: linear-gradient(160deg, #1e1810, #120d07);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
   transition:
     border-color var(--dur-3) ease,
-    box-shadow var(--dur-3) var(--ease-out-expo),
-    transform var(--dur-3) var(--ease-out-expo);
+    box-shadow var(--dur-3) var(--ease-out-quint),
+    transform var(--dur-3) var(--ease-out-quint);
 }
 
 .card:hover .card-cover,
 .card:focus-visible .card-cover {
-  border-color: rgba(124, 140, 255, 0.4);
+  border-color: rgba(232, 192, 122, 0.38);
   box-shadow: var(--shadow-lift);
-  transform: translateY(-3px);
+  transform: translateY(-2px);
 }
 
 .card-cover img {
@@ -52,15 +52,15 @@
   height: 100%;
   object-fit: cover;
   transition:
-    transform 0.55s var(--ease-out-expo),
-    filter 0.4s ease,
+    transform 0.7s var(--ease-out-quint),
+    filter var(--dur-3) ease,
     opacity var(--dur-3) ease;
 }
 
 .card:hover .card-cover img,
 .card:focus-visible .card-cover img {
-  transform: scale(1.05);
-  filter: brightness(1.04);
+  transform: scale(1.03);
+  filter: brightness(1.05) saturate(1.04);
 }
 
 /* Inline cover preview (missav-style first-tap play) */
@@ -71,10 +71,10 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  background: #0a0c12;
+  background: #0b0905;
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--dur-2) ease;
+  transition: opacity var(--dur-3) ease;
 }
 
 .card.is-preview-ready .card-preview {
@@ -86,14 +86,14 @@
 }
 
 .card.is-previewing .card-cover {
-  border-color: rgba(124, 140, 255, 0.55);
-  box-shadow: var(--shadow-lift), 0 0 0 1px rgba(124, 140, 255, 0.18);
-  transform: translateY(-3px);
+  border-color: rgba(232, 192, 122, 0.5);
+  box-shadow: var(--shadow-lift), 0 0 0 1px rgba(232, 192, 122, 0.16);
+  transform: translateY(-2px);
 }
 
 .card.is-previewing .card-play {
   opacity: 0;
-  transform: scale(0.7);
+  transform: scale(0.85);
 }
 
 .card-preview-badge {
@@ -108,14 +108,14 @@
   white-space: nowrap;
   padding: 0.28rem 0.55rem;
   border-radius: var(--radius-pill);
-  border: 1px solid rgba(124, 140, 255, 0.35);
-  background: rgba(12, 14, 22, 0.72);
+  border: 1px solid rgba(232, 192, 122, 0.35);
+  background: rgba(21, 17, 12, 0.72);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   color: var(--accent-soft);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
   pointer-events: none;
-  animation: aether-rise 0.28s var(--ease-out-expo) both;
+  animation: aether-fade var(--dur-2) var(--ease-out-quint) both;
 }
 
 /* Always-visible bottom meta for comfort / touch */
@@ -128,8 +128,8 @@
   padding: 2.2rem 0.7rem 0.7rem;
   background: linear-gradient(
     to top,
-    rgba(8, 10, 16, 0.92) 0%,
-    rgba(8, 10, 16, 0.55) 55%,
+    rgba(13, 10, 7, 0.92) 0%,
+    rgba(13, 10, 7, 0.55) 55%,
     transparent 100%
   );
   display: flex;
@@ -160,7 +160,7 @@
   white-space: nowrap;
 }
 
-/* Richer hover overlay (desktop) */
+/* Richer hover overlay (desktop) — fades in slowly, settles gently */
 .card-overlay {
   position: absolute;
   inset: 0;
@@ -171,13 +171,13 @@
   gap: 0.35rem;
   padding: 0.9rem 0.8rem 0.8rem;
   background:
-    linear-gradient(to top, rgba(8, 10, 18, 0.9) 0%, rgba(8, 10, 18, 0.42) 48%, transparent 74%),
-    linear-gradient(to top, rgba(124, 140, 255, 0.12), transparent 42%);
+    linear-gradient(to top, rgba(13, 10, 7, 0.9) 0%, rgba(13, 10, 7, 0.42) 48%, transparent 74%),
+    linear-gradient(to top, rgba(232, 192, 122, 0.12), transparent 42%);
   opacity: 0;
-  transform: translateY(6px);
+  transform: translateY(4px);
   transition:
-    opacity var(--dur-3) var(--ease-out-expo),
-    transform var(--dur-3) var(--ease-out-expo);
+    opacity var(--dur-3) var(--ease-out-quint),
+    transform var(--dur-3) var(--ease-out-quint);
   pointer-events: none;
 }
 
@@ -212,6 +212,7 @@
   white-space: nowrap;
 }
 
+/* Play button — fades in instead of scaling up, for a calmer reveal */
 .card-play {
   position: absolute;
   left: 50%;
@@ -222,16 +223,16 @@
   margin: -23px 0 0 -23px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(12, 14, 22, 0.52);
+  background: rgba(21, 17, 12, 0.52);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   opacity: 0;
-  transform: scale(0.88);
+  transform: scale(0.94);
   transition:
-    opacity var(--dur-3) var(--ease-out-expo),
-    transform var(--dur-3) var(--ease-out-expo),
-    box-shadow var(--dur-3) ease,
-    background var(--dur-2) ease;
+    opacity var(--dur-3) var(--ease-out-quint),
+    transform var(--dur-3) var(--ease-out-quint),
+    background var(--dur-2) ease,
+    box-shadow var(--dur-3) ease;
   pointer-events: none;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
@@ -251,8 +252,8 @@
 .card:focus-visible .card-play {
   opacity: 1;
   transform: scale(1);
-  background: rgba(124, 140, 255, 0.28);
-  box-shadow: 0 10px 28px rgba(91, 106, 232, 0.35);
+  background: rgba(232, 192, 122, 0.26);
+  box-shadow: 0 10px 28px rgba(200, 154, 78, 0.32);
 }
 
 .card-code {
@@ -262,7 +263,7 @@
   z-index: 2;
   font-size: 0.64rem;
   letter-spacing: 0.06em;
-  background: rgba(10, 12, 18, 0.58);
+  background: rgba(21, 17, 12, 0.58);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   padding: 0.24rem 0.44rem;
@@ -271,7 +272,6 @@
   color: var(--ink-dim);
   transition:
     opacity var(--dur-2) ease,
-    transform var(--dur-3) var(--ease-out-expo),
     color var(--dur-2) ease;
 }
 
@@ -282,7 +282,7 @@
   z-index: 2;
   font-size: 0.64rem;
   letter-spacing: 0.03em;
-  background: rgba(10, 12, 18, 0.58);
+  background: rgba(21, 17, 12, 0.58);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   padding: 0.22rem 0.42rem;
@@ -389,16 +389,16 @@
 }
 
 .chip:hover {
-  border-color: rgba(124, 140, 255, 0.4);
+  border-color: rgba(232, 192, 122, 0.4);
   color: var(--ink);
   transform: translateY(-1px);
 }
 
 .chip.active {
   border-color: transparent;
-  color: #f5f7ff;
+  color: #1a140c;
   background: linear-gradient(165deg, var(--accent), var(--accent-deep));
-  box-shadow: 0 4px 14px rgba(91, 106, 232, 0.28);
+  box-shadow: 0 4px 14px rgba(200, 154, 78, 0.28);
 }
 
 .chip-count {
@@ -465,7 +465,7 @@
 }
 
 .page-pager-btn:hover:not(:disabled) {
-  border-color: rgba(124, 140, 255, 0.4);
+  border-color: rgba(232, 192, 122, 0.4);
   color: var(--ink);
 }
 
@@ -498,10 +498,10 @@
 
 .page-pager-num.active {
   background: linear-gradient(165deg, var(--accent), var(--accent-deep));
-  color: #f5f7ff;
+  color: #1a140c;
   border-color: transparent;
   cursor: default;
-  box-shadow: 0 4px 14px rgba(91, 106, 232, 0.28);
+  box-shadow: 0 4px 14px rgba(200, 154, 78, 0.28);
 }
 
 .page-pager-num:disabled:not(.active) {
@@ -546,7 +546,7 @@
 }
 
 .page-pager-jump input:focus {
-  border-color: rgba(124, 140, 255, 0.55);
+  border-color: rgba(232, 192, 122, 0.55);
 }
 
 .page-pager-total {

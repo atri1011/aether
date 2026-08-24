@@ -1,4 +1,4 @@
-/* base / reset / motion */
+﻿/* base / reset / motion — Refined Soft Cinema */
 
 /* ── Reset ─────────────────────────────────────────────── */
 
@@ -27,12 +27,12 @@ body {
   /* Avoid horizontal rubber-band revealing white/edge gutters */
   overflow-x: clip;
   overscroll-behavior-y: contain;
-  -webkit-tap-highlight-color: rgba(124, 140, 255, 0.18);
+  -webkit-tap-highlight-color: rgba(232, 192, 122, 0.18);
   background:
-    radial-gradient(980px 560px at 8% -10%, rgba(124, 140, 255, 0.14), transparent 58%),
-    radial-gradient(820px 480px at 100% 0%, var(--violet-whisper), transparent 54%),
+    radial-gradient(980px 560px at 8% -10%, rgba(232, 192, 122, 0.14), transparent 58%),
+    radial-gradient(820px 480px at 100% 0%, var(--amber-whisper), transparent 54%),
     radial-gradient(720px 460px at 72% 100%, var(--rose-whisper), transparent 62%),
-    linear-gradient(180deg, #0d1018 0%, var(--bg) 42%, #0a0c12 100%);
+    linear-gradient(180deg, #0e0b08 0%, var(--bg) 42%, #0b0905 100%);
   /* fixed attachment is janky / broken on many mobile browsers */
   background-attachment: scroll;
 }
@@ -40,6 +40,20 @@ body {
 @media (min-width: 961px) and (hover: hover) {
   body {
     background-attachment: fixed;
+  }
+  /* Ambient background drift — barely perceptible, calm.
+     Animates background-position of the radial halos so the light
+     seems to breathe slowly. Pause under reduced motion. */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: -10%;
+    pointer-events: none;
+    z-index: -1;
+    background:
+      radial-gradient(620px 380px at 20% 30%, rgba(232, 192, 122, 0.08), transparent 60%),
+      radial-gradient(540px 320px at 80% 70%, rgba(214, 130, 110, 0.06), transparent 62%);
+    animation: aether-drift 26s var(--ease-drift) infinite alternate;
   }
 }
 
@@ -111,7 +125,7 @@ img {
 }
 
 ::selection {
-  background: rgba(124, 140, 255, 0.32);
+  background: rgba(232, 192, 122, 0.32);
   color: var(--ink);
 }
 
@@ -120,12 +134,16 @@ img {
   outline-offset: 2px;
 }
 
-/* ── Motion ────────────────────────────────────────────── */
+/* ── Motion library ──────────────────────────────────────
+   Each animation has a purpose. Avoid reusing them generically;
+   pick the one whose character matches the intent. */
 
+/* Gentle rise — default entrance. Small y + opacity, no scale jitter.
+   Used by cards, sections, rails. Pairs with --ease-out-expo. */
 @keyframes aether-rise {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -133,48 +151,95 @@ img {
   }
 }
 
+/* Fade — pure opacity, no spatial movement.
+   For things that should appear without drawing the eye (player shell, overlays). */
 @keyframes aether-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Fade-up with slight scale — for hero / large display text. */
+@keyframes aether-fade-up {
   from {
     opacity: 0;
+    transform: translateY(14px) scale(0.992);
   }
   to {
     opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 
+/* Line draw — the section underline. scaleX from left origin. */
 @keyframes aether-line {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
 }
 
+/* Shimmer — skeleton loading sweep. */
 @keyframes aether-shimmer {
-  0% {
-    background-position: 120% 0;
-  }
-  100% {
-    background-position: -40% 0;
-  }
+  0%   { background-position: 120% 0; }
+  100% { background-position: -40% 0; }
 }
 
+/* Spin — full rotation for spinners. */
 @keyframes aether-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
+/* Breathe — very slow opacity + scale pulse for ambient blobs.
+   Reduced amplitude (0.55→0.78, scale 1→1.03) for a calmer, less
+   "glowing" feel than before. */
 @keyframes aether-breathe {
-  0%,
-  100% {
+  0%, 100% {
     opacity: 0.55;
     transform: scale(1);
   }
   50% {
-    opacity: 0.85;
-    transform: scale(1.04);
+    opacity: 0.78;
+    transform: scale(1.03);
   }
 }
 
+/* Drift — extremely slow position drift for ambient background halos.
+   Keeps the page feeling alive without ever demanding attention. */
+@keyframes aether-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(28px, -18px, 0);
+  }
+}
+
+/* Pulse-soft — a tiny opacity pulse for live indicators (e.g. preview badge). */
+@keyframes aether-pulse-soft {
+  0%, 100% { opacity: 0.92; }
+  50%      { opacity: 0.62; }
+}
+
+/* Focus-ring breathe — accessible focus glow that gently pulses so
+   keyboard users see the ring without it being a static hard outline.
+   Only used on key interactive elements via class. */
+@keyframes aether-ring-breathe {
+  0%, 100% {
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 5px var(--accent-glow);
+  }
+}
+
+/* ── Reduced motion ──────────────────────────────────────
+   Honor the user's preference. Strip all animation to instant,
+   but keep transitions on color/opacity for essential feedback. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

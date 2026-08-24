@@ -1,4 +1,4 @@
-/* shell / sidebar / chrome */
+﻿/* shell / sidebar / chrome */
 /* ── Shell / Sidebar ───────────────────────────────────── */
 
 .shell {
@@ -116,7 +116,7 @@
     background var(--dur-2) ease,
     border-color var(--dur-2) ease,
     box-shadow var(--dur-2) ease,
-    transform var(--dur-2) var(--ease-out-expo);
+    transform var(--dur-instant) var(--ease-out-quint);
 }
 
 .nav-link:hover,
@@ -132,21 +132,35 @@
 
 .nav-link.active {
   color: var(--ink);
-  background: linear-gradient(135deg, rgba(124, 140, 255, 0.16), rgba(124, 140, 255, 0.05));
-  border-color: rgba(124, 140, 255, 0.22);
+  background: linear-gradient(135deg, rgba(232, 192, 122, 0.16), rgba(232, 192, 122, 0.05));
+  border-color: rgba(232, 192, 122, 0.22);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
+/* Active indicator — grows from top with scaleY for a smooth settle.
+   transform-origin top makes it feel like it drops into place. */
 .nav-link.active::before {
   content: '';
   position: absolute;
   left: 0;
   top: 18%;
-  bottom: 18%;
+  height: 64%;
   width: 3px;
   border-radius: 999px;
   background: linear-gradient(180deg, var(--accent-soft), var(--accent-deep));
   box-shadow: 0 0 10px var(--accent-glow);
+  transform: scaleY(0);
+  transform-origin: top;
+  animation: aether-line-grow 0.42s var(--ease-out-quint) 0.08s forwards;
+}
+
+@keyframes aether-line-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
 }
 
 .nav-label {
@@ -170,7 +184,9 @@
 .nav-chevron {
   flex-shrink: 0;
   color: var(--ink-faint);
-  transition: transform var(--dur-2) var(--ease-out-expo);
+  transition:
+    transform var(--dur-3) var(--ease-out-quint),
+    color var(--dur-2) ease;
 }
 
 .nav-group.open .nav-chevron {
@@ -314,7 +330,7 @@
 
 .icon-btn:hover {
   background: var(--bg-interactive-hover);
-  border-color: rgba(124, 140, 255, 0.35);
+  border-color: rgba(232, 192, 122, 0.35);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
@@ -324,7 +340,7 @@
 
 .icon-btn.is-active {
   background: var(--accent-mist);
-  border-color: rgba(124, 140, 255, 0.4);
+  border-color: rgba(232, 192, 122, 0.4);
   color: var(--accent-soft);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
@@ -333,7 +349,7 @@
   position: fixed;
   inset: 0;
   z-index: 60;
-  background: rgba(6, 8, 14, 0.55);
+  background: rgba(6, 4, 2, 0.55);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   opacity: 0;
@@ -375,7 +391,7 @@
 }
 
 .search-box:focus-within {
-  border-color: rgba(124, 140, 255, 0.5);
+  border-color: rgba(232, 192, 122, 0.5);
   background: rgba(255, 255, 255, 0.055);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
@@ -429,7 +445,7 @@
 }
 
 .btn:hover {
-  border-color: rgba(124, 140, 255, 0.42);
+  border-color: rgba(232, 192, 122, 0.42);
   color: var(--accent-soft);
   background: var(--accent-mist);
 }
@@ -441,15 +457,15 @@
 .btn.primary {
   background: linear-gradient(165deg, var(--accent) 0%, var(--accent-deep) 100%);
   border-color: transparent;
-  color: #f5f7ff;
-  box-shadow: 0 8px 20px rgba(91, 106, 232, 0.28);
+  color: #1a140c;
+  box-shadow: 0 8px 20px rgba(200, 154, 78, 0.28);
 }
 
 .btn.primary:hover {
-  color: #ffffff;
+  color: #fffaef;
   border-color: transparent;
-  background: linear-gradient(165deg, #8f9dff 0%, var(--accent) 100%);
-  box-shadow: 0 10px 24px rgba(124, 140, 255, 0.34);
+  background: linear-gradient(165deg, #f0d29c 0%, var(--accent) 100%);
+  box-shadow: 0 10px 24px rgba(232, 192, 122, 0.34);
   transform: translateY(-1px);
 }
 
