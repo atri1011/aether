@@ -109,14 +109,20 @@ export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: n
     window.dispatchEvent(new CustomEvent('aether:preview', { detail: { id: video.id } }))
   }, [previewing, video.id])
 
-  // Pause when card leaves viewport (infinite grids).
+  // Pause and release the <video> element when the card leaves the viewport.
+  // Without the wantsPreview reset, long sessions accumulate mounted video
+  // nodes (one per previewed card) even after the user scrolls past them.
   useEffect(() => {
     if (!wantsPreview) return
     const root = videoRef.current?.closest('.card')
     if (!root || typeof IntersectionObserver === 'undefined') return
     const io = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => !e.isIntersecting)) stopPreview()
+        if (entries.some((e) => !e.isIntersecting)) {
+          stopPreview()
+          setWantsPreview(false)
+          setPreviewReady(false)
+        }
       },
       { threshold: 0.15 },
     )

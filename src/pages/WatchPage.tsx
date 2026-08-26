@@ -194,9 +194,12 @@ export function WatchPage() {
     return () => {
       ac.abort()
     }
-    // `video` is gated by probeSubtitles; only its duration feeds the request.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run on id/locale/duration change only
-  }, [probeSubtitles, id, locale, video?.durationSec])
+    // `video` is gated by probeSubtitles; only `id` + `durationSec` feed the
+    // request. Use `streamStatus` (not the whole `video` object) as the trigger
+    // so resolveStream's rebuilt `video` reference doesn't re-fire this probe
+    // when the duration is unchanged.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [probeSubtitles, id, locale, video?.durationSec, video?.streamStatus])
 
   if (loading) return <WatchSkeleton />
   if (error) return <div className="state error">{error}</div>
