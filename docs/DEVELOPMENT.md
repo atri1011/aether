@@ -209,6 +209,15 @@ curl -s http://127.0.0.1:8787/api/health
 - 外部字幕：`hasChineseSubtitle === false` 时自动 `subtitleSearch`；候选经
   `/api/subtitle?url=` 按需转 VTT（见 7.9）
 
+### 6.2.1 搜索联想
+
+搜索联想由共享组件 `components/SearchBox.tsx` 接入侧栏、移动端顶部和搜索结果页，
+使用 `GET /api/search/suggestions?q=...&locale=zh|en` 返回 `{ query, items, partial? }`。
+`items` 是 `kind: actress|video` 的联合类型，最多 8 项；番号做全角/分隔符归一化并按作品去重。
+接口直接查询 Recombee（3 秒截止），复用已缓存的女优资料，不在输入时触发 HTML 抓取。
+女优优先显示已有头像，缺少头像时显示关联作品封面，封面不作为女优头像传给详情页。
+输入防抖为 240ms，换词、失焦或关闭时取消旧请求；空结果和异常都保留完整搜索入口。
+
 ### 6.3 播放器
 
 - `components/Player.tsx`：hls.js

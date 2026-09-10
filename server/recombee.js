@@ -39,7 +39,7 @@ export async function recombeePost(path, body, { timeoutMs = 12000 } = {}) {
   }
 }
 
-export function searchItems(query, { count = 24, filter } = {}) {
+export function searchItems(query, { count = 24, filter, timeoutMs } = {}) {
   const body = {
     searchQuery: query,
     count,
@@ -47,7 +47,7 @@ export function searchItems(query, { count = 24, filter } = {}) {
     returnProperties: true,
   }
   if (filter) body.filter = filter
-  return recombeePost('/search/users/anonymous/items/', body)
+  return recombeePost('/search/users/anonymous/items/', body, { timeoutMs })
 }
 
 export function recommendForUser({ count = 24, filter, scenario } = {}) {

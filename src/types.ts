@@ -108,6 +108,16 @@ export interface ActressSummary {
   rank?: number | null
 }
 
+export type SearchSuggestion =
+  | { kind: 'actress'; actress: ActressSummary; coverUrl: string }
+  | { kind: 'video'; video: VideoSummary; match: 'code' | 'title' | 'actress' }
+
+export interface SearchSuggestions {
+  query: string
+  items: SearchSuggestion[]
+  partial?: boolean
+}
+
 export interface ActressStats {
   heightCm: number
   bust: string

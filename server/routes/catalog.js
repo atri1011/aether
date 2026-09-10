@@ -24,6 +24,7 @@ import {
 import { mapRecomms } from '../map.js'
 import { pyScrapeCatalog, pyScrapeList } from '../pybridge.js'
 import { withCache } from '../services/cacheWrap.js'
+import { loadSearchSuggestions, normalizeSearchQuery } from '../services/searchSuggestions.js'
 import {
   mapScrapeItemsEnriched,
   SCRAPE_PAGE_FULL,
@@ -49,9 +50,25 @@ router.get('/api/video-filters', (req, res) => {
   })
 })
 
+router.get('/api/search/suggestions', async (req, res) => {
+  if (req.query.q != null && typeof req.query.q !== 'string') {
+    return sendError(res, 400, 'CONFIG', 'q must be a string')
+  }
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+  if (!q) return res.json({ query: '', items: [] })
+  if (q.length > 100) return sendError(res, 400, 'CONFIG', 'q must be at most 100 characters')
+  try {
+    const { data, cache } = await loadSearchSuggestions(q, localeOf(req))
+    res.setHeader('X-Aether-Cache', cache)
+    res.json(data)
+  } catch {
+    sendError(res, 503, 'UPSTREAM', 'Search suggestions are temporarily unavailable')
+  }
+})
+
 router.get('/api/search', async (req, res) => {
   const locale = localeOf(req)
-  const q = String(req.query.q || '').trim()
+  const q = normalizeSearchQuery(req.query.q)
   const page = Math.max(1, Number(req.query.page) || 1)
   const pageSize = Math.min(48, Math.max(1, Number(req.query.pageSize) || 24))
   const filters = sanitizeVideoFilter(req.query.filters || req.query.filter)

@@ -10,6 +10,7 @@ import { VideoFilterBar } from '../components/VideoFilterBar'
 import { useVideoListQuery } from '../hooks/useVideoListQuery'
 import { ActressRail } from '../components/ActressRail'
 import { ActressRailSkeleton, VideoSkeletonGrid } from '../components/Skeleton'
+import { SearchBox } from '../components/SearchBox'
 
 export function SearchPage() {
   const { locale, tr } = useLocale()
@@ -84,21 +85,24 @@ export function SearchPage() {
     query.sort,
   ])
 
-  if (!q) return <div className="state">{tr('searchPlaceholder')}</div>
+  const heading = (
+    <section className="section search-page-heading">
+      <div className="section-head">
+        <h2>{tr('search')}{q ? `: ${q}` : ''}</h2>
+        <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
+      </div>
+      <SearchBox className="search-page-box" />
+    </section>
+  )
+
+  if (!q) return heading
   if (error && !items.length && !actressesLoading && !actresses.length) {
-    return <div className="state error">{error}</div>
+    return <>{heading}<div className="state error">{error}</div></>
   }
 
   return (
     <>
-      <section className="section">
-        <div className="section-head">
-          <h2>
-            {tr('search')}: {q}
-          </h2>
-          <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
-        </div>
-      </section>
+      {heading}
 
       {actressesLoading && !actresses.length ? (
         <section className="section actress-rail" aria-busy="true">

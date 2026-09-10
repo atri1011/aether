@@ -8,6 +8,7 @@ import type {
   HomePayload,
   Locale,
   PagedResult,
+  SearchSuggestions,
   SubtitleSearchResult,
   VideoDetail,
   VideoFilterOptions,
@@ -27,6 +28,8 @@ import {
   actressRankingCacheKey,
   categoryListCacheKey,
   listCacheLoad,
+  listCacheGet,
+  listCacheSet,
 } from './listCache'
 import { defaultSortForCategory } from './videoListDefaults'
 
@@ -155,6 +158,17 @@ export const api = {
     ),
   search: (q: string, locale: Locale, page = 1, query?: VideoListQuery, opts?: FetchOpts) =>
     api.searchPage(q, locale, page, 24, query, opts),
+  searchSuggestions: async (q: string, locale: Locale, opts?: FetchOpts) => {
+    const query = q.normalize('NFKC').trim().replace(/\s+/g, ' ')
+    const key = `suggest:${locale}:${query.toLowerCase()}`
+    const cached = listCacheGet<SearchSuggestions>(key)
+    if (cached) return cached
+    const params = new URLSearchParams({ q: query, locale })
+    const data = await getJson<SearchSuggestions>(`/api/search/suggestions?${params}`, locale, opts)
+    if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    if (!data.partial) listCacheSet(key, data)
+    return data
+  },
   browse: (locale: Locale, page = 1, query?: VideoListQuery, opts?: FetchOpts) =>
     api.browsePage(locale, page, 24, query, opts),
   categories: (locale: Locale, opts?: FetchOpts) =>

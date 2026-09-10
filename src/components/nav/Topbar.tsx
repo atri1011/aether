@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { useLocale } from '../../context'
+import { SearchBox } from '../SearchBox'
 
 type Props = {
   drawerOpen: boolean
@@ -18,16 +19,7 @@ export function Topbar({
   onCloseSearch,
 }: Props) {
   const { locale, setLocale, tr } = useLocale()
-  const navigate = useNavigate()
-  const [q, setQ] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
   const topbarRef = useRef<HTMLElement>(null)
-
-  useEffect(() => {
-    if (!searchOpen) return
-    const t = window.setTimeout(() => inputRef.current?.focus(), 40)
-    return () => window.clearTimeout(t)
-  }, [searchOpen])
 
   // Publish live topbar height so sticky filters clear open search / safe-area.
   useEffect(() => {
@@ -45,14 +37,6 @@ export function Topbar({
       document.documentElement.style.removeProperty('--topbar-live-h')
     }
   }, [searchOpen])
-
-  function onSearch(e: FormEvent) {
-    e.preventDefault()
-    const query = q.trim()
-    if (!query) return
-    onCloseSearch()
-    navigate(`/search?q=${encodeURIComponent(query)}`)
-  }
 
   return (
     <header ref={topbarRef} className={`topbar${searchOpen ? ' search-open' : ''}`}>
@@ -109,23 +93,7 @@ export function Topbar({
 
       {searchOpen && (
         <div id="aether-topbar-search" className="topbar-search-panel">
-          <form className="search-box" onSubmit={onSearch} role="search">
-            <input
-              ref={inputRef}
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={tr('searchPlaceholder')}
-              aria-label={tr('search')}
-              enterKeyHint="search"
-              autoCapitalize="off"
-              autoCorrect="off"
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <button className="btn primary" type="submit">
-              {tr('search')}
-            </button>
-          </form>
+          <SearchBox autoFocus onNavigate={onCloseSearch} />
         </div>
       )}
     </header>
