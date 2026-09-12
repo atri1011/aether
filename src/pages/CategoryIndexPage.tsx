@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import type { CategoryItem } from '../types'
 import { useLocale } from '../context'
 import { CategoryChipGrid } from '../components/CategoryChipGrid'
 import { PagePager } from '../components/PagePager'
+import { usePageQuery } from '../hooks/usePageQuery'
 
 type Kind = 'genres' | 'makers'
 
@@ -15,36 +15,13 @@ const TITLE_KEY: Record<Kind, 'genresNav' | 'makersNav'> = {
 
 export function CategoryIndexPage({ kind }: { kind: Kind }) {
   const { locale, tr } = useLocale()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const page = Math.max(1, Number(searchParams.get('page')) || 1)
+  const { page, setPage } = usePageQuery()
 
   const [items, setItems] = useState<CategoryItem[]>([])
   const [title, setTitle] = useState('')
   const [maxPage, setMaxPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  const setPage = useCallback(
-    (next: number) => {
-      const p = Math.max(1, next)
-      setSearchParams(
-        (prev) => {
-          const sp = new URLSearchParams(prev)
-          if (p <= 1) sp.delete('page')
-          else sp.set('page', String(p))
-          return sp
-        },
-        { replace: false },
-      )
-      // scroll list back to top like MissAV full navigation
-      try {
-        window.scrollTo({ top: 0, behavior: 'smooth' })
-      } catch {
-        // ignore
-      }
-    },
-    [setSearchParams],
-  )
 
   useEffect(() => {
     let cancelled = false

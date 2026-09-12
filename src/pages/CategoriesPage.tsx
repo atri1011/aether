@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 import type { CategoryItem, VideoFilterOptions } from '../types'
 import { useLocale } from '../context'
 import { VideoGrid } from '../components/VideoGrid'
-import { InfiniteSentinel } from '../components/InfiniteSentinel'
+import { PagePager } from '../components/PagePager'
 import { usePagedList } from '../hooks/usePagedList'
 import { VideoFilterBar } from '../components/VideoFilterBar'
 import { useVideoListQuery } from '../hooks/useVideoListQuery'
@@ -107,7 +107,7 @@ export function CategoriesPage() {
     [slug, locale, query],
   )
 
-  const { items, loading, loadingMore, error, hasMore, loadMore } = usePagedList(loader, [
+  const { items, page, setPage, loading, error, hasMore, reload } = usePagedList(loader, [
     slug,
     locale,
     query.filters,
@@ -151,7 +151,7 @@ export function CategoriesPage() {
     <section className="section">
       <div className="section-head">
         <h2>{title || instantTitle || slug}</h2>
-        <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
+        <span className="card-sub">{items.length ? `${items.length} ${tr('videoCount')}` : ''}</span>
       </div>
       <VideoFilterBar
         options={filterOptions}
@@ -160,25 +160,22 @@ export function CategoriesPage() {
         defaultSort={defaultSort}
       />
       {loading && !items.length && <VideoSkeletonGrid count={12} />}
-      {error && !items.length && <div className="state error">{error}</div>}
-      {items.length > 0 && (
-        <>
-          <VideoGrid items={items} />
-          <InfiniteSentinel
-            onVisible={loadMore}
-            disabled={!hasMore || loading}
-            loading={loadingMore}
-            label={tr('loadMore')}
-            loadingLabel={tr('loadingMore')}
-          />
-          {!hasMore && !loading && (
-            <div className="state" style={{ padding: '1.25rem' }}>
-              {tr('endOfList')}
-            </div>
-          )}
-        </>
+      {error && (
+        <div className="state error" role="alert">
+          <p>{error}</p>
+          <button type="button" className="btn" onClick={() => void reload()}>{tr('retry')}</button>
+        </div>
       )}
+      {items.length > 0 && <VideoGrid items={items} />}
       {!loading && !error && !items.length && <div className="state">{tr('empty')}</div>}
+      <PagePager
+        page={page}
+        hasMore={hasMore}
+        onChange={setPage}
+        disabled={loading}
+        prevLabel={tr('prevPage')}
+        nextLabel={tr('nextPage')}
+      />
     </section>
   )
 }

@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 import type { ActressSummary, VideoFilterOptions } from '../types'
 import { useLocale } from '../context'
 import { VideoGrid } from '../components/VideoGrid'
-import { InfiniteSentinel } from '../components/InfiniteSentinel'
+import { PagePager } from '../components/PagePager'
 import { usePagedList } from '../hooks/usePagedList'
 import { VideoFilterBar } from '../components/VideoFilterBar'
 import { useVideoListQuery } from '../hooks/useVideoListQuery'
@@ -78,7 +78,7 @@ export function SearchPage() {
     [q, locale, query],
   )
 
-  const { items, loading, loadingMore, error, hasMore, loadMore } = usePagedList(loader, [
+  const { items, page, setPage, loading, error, hasMore, reload } = usePagedList(loader, [
     q,
     locale,
     query.filters,
@@ -89,16 +89,13 @@ export function SearchPage() {
     <section className="section search-page-heading">
       <div className="section-head">
         <h2>{tr('search')}{q ? `: ${q}` : ''}</h2>
-        <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
+        <span className="card-sub">{items.length ? `${items.length} ${tr('videoCount')}` : ''}</span>
       </div>
       <SearchBox className="search-page-box" />
     </section>
   )
 
   if (!q) return heading
-  if (error && !items.length && !actressesLoading && !actresses.length) {
-    return <>{heading}<div className="state error">{error}</div></>
-  }
 
   return (
     <>
@@ -124,19 +121,20 @@ export function SearchPage() {
         ) : (
           !error && <div className="state">{tr('empty')}</div>
         )}
-        {error && items.length > 0 && <div className="state error">{error}</div>}
-        <InfiniteSentinel
-          onVisible={loadMore}
-          disabled={!hasMore}
-          loading={loadingMore}
-          label={tr('loadMore')}
-          loadingLabel={tr('loadingMore')}
-        />
-        {!hasMore && items.length > 0 && (
-          <div className="state" style={{ padding: '1.25rem' }}>
-            {tr('endOfList')}
+        {error && (
+          <div className="state error" role="alert">
+            <p>{error}</p>
+            <button type="button" className="btn" onClick={() => void reload()}>{tr('retry')}</button>
           </div>
         )}
+        <PagePager
+          page={page}
+          hasMore={hasMore}
+          onChange={setPage}
+          disabled={loading}
+          prevLabel={tr('prevPage')}
+          nextLabel={tr('nextPage')}
+        />
       </section>
     </>
   )

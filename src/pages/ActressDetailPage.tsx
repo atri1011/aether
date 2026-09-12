@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { api, resolveActressAvatar } from '../lib/api'
 import type { ActressProfile, ActressSummary, VideoFilterOptions, VideoSummary } from '../types'
 import { useLocale } from '../context'
 import { VideoGrid } from '../components/VideoGrid'
-import { InfiniteSentinel } from '../components/InfiniteSentinel'
+import { PagePager } from '../components/PagePager'
 import { usePagedList } from '../hooks/usePagedList'
 import { VideoFilterBar } from '../components/VideoFilterBar'
 import { useVideoListQuery } from '../hooks/useVideoListQuery'
@@ -12,7 +12,7 @@ import { VideoSkeletonGrid } from '../components/Skeleton'
 
 /** Merge page-N profile into existing hero meta.
  *
- * MissAV only embeds the portrait on page 1. Infinite scroll page 2+ returns
+ * MissAV only embeds the portrait on page 1. Page 2+ returns
  * actress={name, avatarUrl:""} and used to wipe the hero avatar.
  * Recombee works path also returns thin actress shells — keep seed portrait.
  */
@@ -85,6 +85,7 @@ export function ActressDetailPage() {
 
   const { locale, tr } = useLocale()
   const [profile, setProfile] = useState<ActressProfile | null>(navSeed)
+  const profileRef = useRef<ActressProfile | null>(navSeed)
   const [avatarBroken, setAvatarBroken] = useState(false)
   const [filterOptions, setFilterOptions] = useState<VideoFilterOptions | null>(null)
   const { query, setQuery } = useVideoListQuery({ sort: 'released_at' })
@@ -130,8 +131,17 @@ export function ActressDetailPage() {
         if (signal.aborted) throw e
         d = await loadOnce()
       }
-      if (d.actress) {
-        setProfile((prev) => mergeActressProfile(prev, d.actress))
+      let nextProfile: ActressProfile | null = d.actress
+      // A shared page-2+ URL has no navigation seed, and later scrape pages
+      // may omit the portrait. Fetch page 1 only for its profile in that case.
+      if (page > 1 && !profileRef.current) {
+        const first = await api.actressDetail(slug, locale, 1, query, { signal, seed })
+        nextProfile = mergeActressProfile(first.actress, d.actress)
+      }
+      if (signal.aborted) return d
+      if (nextProfile) {
+        profileRef.current = mergeActressProfile(profileRef.current, nextProfile)
+        setProfile(profileRef.current)
       }
       if (d.filterOptions) setFilterOptions(d.filterOptions)
       const hasMore =
@@ -146,7 +156,7 @@ export function ActressDetailPage() {
     [slug, locale, query, navSeed],
   )
 
-  const { items, loading, loadingMore, error, hasMore, loadMore, reload } = usePagedList(loader, [
+  const { items, page, setPage, loading, error, hasMore, reload } = usePagedList(loader, [
     slug,
     locale,
     query.filters,
@@ -155,11 +165,12 @@ export function ActressDetailPage() {
 
   useEffect(() => {
     // Keep nav seed so hero does not flash empty while API loads.
+    profileRef.current = navSeed
     setProfile(navSeed)
     setAvatarBroken(false)
   }, [slug, locale, navSeed])
 
-  // Kick fourhoi CDN as soon as page-1 JSON arrives.
+  // Kick fourhoi CDN as soon as the current page's JSON arrives.
   const coverWarmKey = useMemo(
     () =>
       items
@@ -250,7 +261,7 @@ export function ActressDetailPage() {
       <section className="section">
         <div className="section-head">
           <h2>{tr('actressWorks')}</h2>
-          <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
+          <span className="card-sub">{items.length ? `${items.length} ${tr('videoCount')}` : ''}</span>
         </div>
         <VideoFilterBar
           options={filterOptions}
@@ -273,18 +284,14 @@ export function ActressDetailPage() {
         )}
         {!loading && !error && !items.length && <div className="state">{tr('empty')}</div>}
         {items.length > 0 && <VideoGrid items={items} />}
-        <InfiniteSentinel
-          onVisible={loadMore}
-          disabled={!hasMore}
-          loading={loadingMore}
-          label={tr('loadMore')}
-          loadingLabel={tr('loadingMore')}
+        <PagePager
+          page={page}
+          hasMore={hasMore}
+          onChange={setPage}
+          disabled={loading}
+          prevLabel={tr('prevPage')}
+          nextLabel={tr('nextPage')}
         />
-        {!hasMore && items.length > 0 && (
-          <div className="state" style={{ padding: '1.25rem' }}>
-            {tr('endOfList')}
-          </div>
-        )}
       </section>
     </>
   )

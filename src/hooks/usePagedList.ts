@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { VideoSummary } from '../types'
 import { isAbortError } from '../lib/api'
+import { usePageQuery } from './usePageQuery'
 
 type PageResult = {
   items: VideoSummary[]
@@ -12,34 +13,30 @@ type PageResult = {
 type Loader = (page: number, signal: AbortSignal) => Promise<PageResult>
 
 export function usePagedList(loader: Loader, deps: unknown[]) {
+  const { page, setPage } = usePageQuery()
   const [items, setItems] = useState<VideoSummary[]>([])
-  const [page, setPage] = useState(0)
-  const [hasMore, setHasMore] = useState(true)
-  const [loading, setLoading] = useState(false)
-  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [meta, setMeta] = useState<Record<string, unknown>>({})
-  const busy = useRef(false)
   const loaderRef = useRef(loader)
   loaderRef.current = loader
   const abortRef = useRef<AbortController | null>(null)
 
-  const resetAndLoad = useCallback(async () => {
+  const loadPage = useCallback(async () => {
     abortRef.current?.abort()
     const ac = new AbortController()
     abortRef.current = ac
 
-    busy.current = true
     setLoading(true)
     setError(null)
-    // Clear list so switching categories never shows the previous slug's cards.
+    // Each URL page replaces the list; never append cards from another page.
     setItems([])
-    setPage(0)
-    setHasMore(true)
+    setHasMore(false)
+    setMeta({})
 
     const applyPage = (d: PageResult) => {
       setItems(d.items || [])
-      setPage(1)
       const more =
         typeof d.hasMore === 'boolean'
           ? d.hasMore
@@ -49,7 +46,7 @@ export function usePagedList(loader: Loader, deps: unknown[]) {
     }
 
     try {
-      const d = await loaderRef.current(1, ac.signal)
+      const d = await loaderRef.current(page, ac.signal)
       if (ac.signal.aborted) return
       applyPage(d)
     } catch (e) {
@@ -59,7 +56,7 @@ export function usePagedList(loader: Loader, deps: unknown[]) {
       // retry once instead of leaving an empty "没结果" grid.
       if (isAbortError(e)) {
         try {
-          const d = await loaderRef.current(1, ac.signal)
+          const d = await loaderRef.current(page, ac.signal)
           if (ac.signal.aborted) return
           applyPage(d)
           return
@@ -75,68 +72,26 @@ export function usePagedList(loader: Loader, deps: unknown[]) {
     } finally {
       if (!ac.signal.aborted) {
         setLoading(false)
-        busy.current = false
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps)
+  }, [page, ...deps])
 
   useEffect(() => {
-    resetAndLoad()
+    void loadPage()
     return () => {
       abortRef.current?.abort()
     }
-  }, [resetAndLoad])
-
-  const loadMore = useCallback(async () => {
-    if (busy.current || !hasMore || loading || loadingMore) return
-    const ac = abortRef.current
-    if (!ac || ac.signal.aborted) return
-    busy.current = true
-    setLoadingMore(true)
-    try {
-      const next = page + 1
-      const d = await loaderRef.current(next, ac.signal)
-      if (ac.signal.aborted) return
-      const batch = d.items || []
-      setItems((prev) => {
-        const seen = new Set(prev.map((x) => x.id))
-        const merged = [...prev]
-        for (const it of batch) {
-          if (!seen.has(it.id)) {
-            seen.add(it.id)
-            merged.push(it)
-          }
-        }
-        return merged
-      })
-      setPage(next)
-      const more =
-        typeof d.hasMore === 'boolean'
-          ? d.hasMore
-          : batch.length >= Math.min(d.pageSize || 24, 12)
-      setHasMore(more && batch.length > 0)
-      // Clear a prior page-N failure so a successful retry does not keep an
-      // error banner (or any page that keys off `error`) stuck on screen.
-      setError(null)
-    } catch (e) {
-      if (isAbortError(e)) return
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoadingMore(false)
-      busy.current = false
-    }
-  }, [hasMore, loading, loadingMore, page])
+  }, [loadPage])
 
   return {
     items,
     page,
+    setPage,
     hasMore,
     loading,
-    loadingMore,
     error,
     meta,
-    loadMore,
-    reload: resetAndLoad,
+    reload: loadPage,
   }
 }

@@ -24,7 +24,7 @@ Sibling product docs (parent of this repo): `../docs/api-contract.md`, `../docs/
 | `npm run build` | `tsc -b && vite build` → `dist/` |
 | `npm start` | Production-like: API serves `dist/` + SPA fallback |
 | `npm run lint` | `oxlint` (React + TS plugins; `.oxlintrc.json`) |
-| `npm test` | `node:test` pure-function suite (server) |
+| `npm test` | `node:test` pure functions, local HTTP contracts, and pager rendering |
 | `npm run preview` | Vite preview of built assets |
 
 Validate: `npm test` + `npm run build` + `npm run dev` smoke. See `docs/OPTIMIZATION.md` for feature flags (`SCRAPE_WORKER`, `HLS_STREAMING`, `VIDEO_LAZY_STREAM`, `RATE_LIMIT`).
@@ -77,7 +77,7 @@ Node Express (server/index.js → app.js :8787)
 - **Entry:** `main.tsx` → `App.tsx` (`LocaleProvider` → `AuthShell` → `BrowserRouter` → `Layout`).
 - **Auth UX:** `AuthShell` boots on `/api/auth/status`; locked → `AccessGate`. Unlock only after server sets HttpOnly cookie — client state alone cannot open APIs.
 - **API client:** `src/lib/api.ts` — all fetches use `credentials: 'include'` and `X-Locale`. Category lists use `listCache.ts` (memory + in-flight dedupe) including hover prefetch.
-- **List pagination:** `hooks/usePagedList.ts` — resets items on dep change; `hasMore` prefers server flag (scrape pages are ~12 items, not client `pageSize` 24).
+- **Video list pagination:** `hooks/usePagedList.ts` replaces items for the URL page; `hooks/usePageQuery.ts` preserves filters and navigation state in browser history. Browse/search/category/actress works and topic details use `PagePager`, with no automatic loading of later pages. Filter/sort changes reset page 1. `hasMore` prefers the server flag (scrape pages are ~12 items, not client `pageSize` 24); do not invent a total when the source omits it. Topic fragment pages can omit their header, so direct page URLs fetch page 1 metadata separately.
 - **Routes:** home, browse, search, actresses (+ ranking), `actress/:slug`, genres/makers index, `c/:slug` and `c/:kind/:name`, watch `v/:id`. Nav tree: `src/nav/navConfig.ts`.
 - **Player:** `components/Player.tsx` — hls.js; stream URLs must stay **same-origin** `/api/hls?...` so the session cookie is sent (absolute `http://host:8787/...` breaks dev playback). Quality preference in `localStorage` (`aether.hlsQuality`).
 - **i18n:** `context.tsx` + `i18n.ts` (`zh` / `en`); locale in `localStorage` key `aether.locale`.
@@ -110,7 +110,7 @@ Node Express (server/index.js → app.js :8787)
 ### Important server behaviors
 
 - **Cache:** fresh hit → return; stale → return immediately + background revalidate (SWR); cold miss → singleflight; loader failure → last-success stale when allowed. Keys are versioned strings (e.g. `cat:v11:…`) — bump when response shape/logic changes.
-- **Scrape `hasMore`:** list HTML is ~12 cards/page; server uses scrape fullness (`SCRAPE_PAGE_FULL`), not client pageSize, so infinite scroll does not stop after page 1.
+- **Scrape `hasMore`:** list HTML is ~12 cards/page; server uses scrape fullness (`SCRAPE_PAGE_FULL`), not client pageSize, to decide whether the next page is available.
 - **Junk slug filter:** `isLikelyVideoId` drops footer/nav false positives (partners, ranking, login, etc.).
 - **Enrichment:** scrape often lacks actresses/duration; `enrichSummariesFromRecombee` fills via public search + `itemId` OR filter (public token cannot `GET /items/{id}`).
 - **Auth public paths:** `/api/health`, `/api/auth/*` only; everything else needs session when `SITE_PASSWORD` is set.

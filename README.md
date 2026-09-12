@@ -96,6 +96,7 @@ AUTH_SECURE_COOKIE=1                    # set Secure cookie flag (use behind HTT
 
 ## Notes
 
+- Video lists in browse, search, categories, actress works, and topic details use manual pagination. Page URLs survive refresh/back navigation; changing video filters or sort returns to page 1.
 - List/search use signed Recombee public API + real scenarios (`desktop-home-recommended`, segments).
 - Stream UUID: `curl_cffi` detail parse on missav.ws.
 - Playback: `/api/hls` → long-running Python media worker (`MEDIA_PORT=18790`) with curl_cffi session reuse; one-shot fallback if worker down.

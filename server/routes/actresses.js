@@ -283,8 +283,8 @@ router.get('/api/actresses/:slug', async (req, res) => {
   const nameHint = String(req.query.name || '').trim()
   const actressIdHint = String(req.query.actressId || '').trim()
   const avatarHint = String(req.query.avatarUrl || '').trim()
-  // v16: bootstrap JP cast from CN display names (桃乃木香奈 → 桃乃木かな).
-  const key = `actresses:detail:v16:${locale}:${slug}:${nameHint}:${actressIdHint}:${page}:${filters}:${sort}`
+  // v17: manual pagination surfaces later-page upstream failures for retry.
+  const key = `actresses:detail:v17:${locale}:${slug}:${nameHint}:${actressIdHint}:${page}:${filters}:${sort}`
   const isDefaultListing = !filters && (!sort || sort === DEFAULT_SORT.actress)
   try {
     const { data, cache } = await withCache(
@@ -571,31 +571,26 @@ router.get('/api/actresses/:slug', async (req, res) => {
         )
       }
 
-      if (!items.length && !hasActressProfile(actress) && lastErr) {
-        // Page 2+ often returns a bare profile shell (portrait only on page 1).
-        // A CF blip or empty tail page must end pagination, not 503 the detail
-        // API — that made infinite-scroll loadMore fail and the client hide
-        // every already-loaded card.
-        if (page <= 1) {
-          const msg = String(lastErr)
-          const blocked = isTransientActressErr(msg) || /status 403|challenge/i.test(msg)
-          const missing = /status 404|not found/i.test(msg)
-          const err = new Error(
-            missing
-              ? `actress not found: ${slug}`
-              : blocked
-                ? `actress temporarily blocked by upstream (retry): ${slug}`
-                : msg === 'no items parsed' || /no candidate/i.test(msg)
-                  ? `actress not found or blocked: ${slug}`
-                  : msg,
-          )
-          // Transient CF → UPSTREAM 503 (client retries). True miss → NOT_FOUND 404.
-          err.code = missing ? 'NOT_FOUND' : 'UPSTREAM'
-          err.details = lastErr
-          err.retryable = Boolean(blocked && !missing)
-          throw err
-        }
-        hasMore = false
+      if (!items.length && lastErr && (page > 1 || !hasActressProfile(actress))) {
+        // A failed page must be retryable, even when a navigation seed supplies
+        // the profile. Only successful empty responses indicate the list's end.
+        const msg = String(lastErr)
+        const blocked = isTransientActressErr(msg) || /status 403|challenge/i.test(msg)
+        const missing = /status 404|not found/i.test(msg)
+        const err = new Error(
+          missing
+            ? `actress not found: ${slug}`
+            : blocked
+              ? `actress temporarily blocked by upstream (retry): ${slug}`
+              : msg === 'no items parsed' || /no candidate/i.test(msg)
+                ? `actress not found or blocked: ${slug}`
+                : msg,
+        )
+        // Transient CF → UPSTREAM 503 (client retries). True miss → NOT_FOUND 404.
+        err.code = missing ? 'NOT_FOUND' : 'UPSTREAM'
+        err.details = lastErr
+        err.retryable = Boolean(blocked && !missing)
+        throw err
       }
 
       if (!items.length) hasMore = false

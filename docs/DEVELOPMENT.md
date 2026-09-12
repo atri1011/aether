@@ -75,7 +75,7 @@ cp .env.example .env
 | `npm run build` | `tsc -b && vite build` → `dist/` |
 | `npm start` | 生产形态：API 托管 `dist/` + SPA fallback |
 | `npm run lint` | `oxlint` |
-| `npm test` | `node:test` 核心纯函数（auth / cache / filters / m3u8 / scrapeMap） |
+| `npm test` | `node:test` 核心纯函数、HTTP 契约与分页组件渲染检查 |
 | `npm run preview` | 预览已构建静态资源 |
 
 改完后至少：
@@ -109,7 +109,8 @@ aether/
 │   ├── styles/             # tokens / base / layout / components / pages
 │   ├── lib/api.ts          # API 客户端（支持 AbortSignal）
 │   ├── lib/listCache.ts    # 列表内存缓存 + in-flight 去重
-│   ├── hooks/usePagedList.ts  # deps 变化时 abort 上次请求
+│   ├── hooks/usePagedList.ts  # 按 URL 页码替换视频列表，变化时 abort 上次请求
+│   ├── hooks/usePageQuery.ts  # 页码 URL / 历史记录，保留查询参数与导航 state
 │   ├── components/ / pages/ / nav/
 ├── server/
 │   ├── index.js            # listen / warm / workers / shutdown
@@ -133,7 +134,7 @@ aether/
 ├── Dockerfile / docker-compose.yml / vite.config.ts / package.json
 ```
 
-**测试：** `npm test`（`node:test`，无网络纯函数）。  
+**测试：** `npm test`（`node:test`；纯函数、本地 HTTP 契约与分页渲染，无外网依赖）。
 **优化清单与开关：** [`OPTIMIZATION.md`](./OPTIMIZATION.md)。
 
 ---
@@ -201,10 +202,15 @@ curl -s http://127.0.0.1:8787/api/health
 - 唯一入口：`src/lib/api.ts`（`FetchOpts.signal` 支持 Abort）
 - 类型：`src/types.ts`（`VideoDetail.streamStatus` 可选）
 - 列表：优先 `listCacheLoad` / `categoryListCacheKey`（hover 预取与首屏共用）
-- 无限滚动：`hooks/usePagedList.ts`  
+- 视频手动分页：`hooks/usePagedList.ts` + `hooks/usePageQuery.ts` + `components/PagePager.tsx`
+  - 浏览、搜索、分类专区、女优作品每次只显示当前页，不在滚动到底时请求后续页
+  - URL `page` 为正整数；第一页省略。翻页保留搜索词、筛选、排序和导航 state，支持刷新与浏览器前进/后退
+  - `useVideoListQuery` 修改筛选或排序时清除页码，回到第一页；新搜索使用新的 `q` URL
   - **以服务端 `hasMore` 为准**  
   - scrape 一页约 12 条，不是客户端 `pageSize` 24  
-  - deps 变化时 abort 上一次请求（OPT-08）
+  - 接口未提供总页数时，只展示可用页码、上一页/下一页与页码跳转，不推算总页数
+  - 页码或 deps 变化时 abort 上一次请求（OPT-08）；请求失败可重试当前页，空页/失败页仍可返回前页
+- 专题详情的视频与帧共用手动页码；后续页可能只有列表片段，直接打开后续页时另取第一页补充专题资料，不合并第一页内容
 - 观看页：先拉 meta，无 `stream.masterUrl` 时自动 `resolve-stream`（OPT-07）
 - 外部字幕：`hasChineseSubtitle === false` 时自动 `subtitleSearch`；候选经
   `/api/subtitle?url=` 按需转 VTT（见 7.9）
@@ -243,7 +249,7 @@ curl -s http://127.0.0.1:8787/api/health
 
 1. 在 `api.ts` 增加方法（`credentials` + `X-Locale`）
 2. `types.ts` 补类型
-3. 页面用 `usePagedList` 或现有 pager
+3. 视频列表用 `usePagedList` + `PagePager`；有独立数据结构的分页用 `usePageQuery`，勿接无限滚动
 4. 错误态 / skeleton / 空态与现有页一致
 5. 需要侧栏入口 → `nav/navConfig.ts` **且**（若是分类）`server/categories.js`
 
@@ -426,8 +432,9 @@ GET  /api/whos/ranking?kind=video|actress
    - romaji slug 同样走 bootstrap（`kana-momonogi` → `桃乃木かな`）
 2. **头像 seed**：列表/搜索卡 `location.state` + query `name`/`actressId`/`avatarUrl`；`ensureActressAvatar` 用 id 补 fourhoi URL
 3. Recombee 空或 individual/multiple → scrape detail → `scrape_list` 回退
-4. 分页以数据源 `hasMore` 为准；翻页合并时**不得**用空 `avatarUrl` 覆盖已有头像
-5. 磁盘缓存 key `actresses:detail:v16:…`；**只缓存有作品的响应**（避免 profile-only 空壳粘成「没有结果」）
+4. 分页以数据源 `hasMore` 为准；翻页替换作品列表，合并人物资料时**不得**用空 `avatarUrl` 覆盖已有头像，更新 URL 时保留 `location.state` 中的头像 seed；直接打开后续页且无人物资料时另取第一页补全资料
+5. 后续页上游失败返回 `UPSTREAM` / `NOT_FOUND`，供当前页重试；仅成功的空响应表示列表结束
+6. 磁盘缓存 key `actresses:detail:v17:…`；**只缓存有作品的响应**（避免 profile-only 空壳粘成「没有结果」）
 
 ---
 

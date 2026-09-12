@@ -1,10 +1,11 @@
 import { useCallback, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import type { VideoListQuery } from '../types'
 
 /** Read/write filters+sort from the current URL search params. */
 export function useVideoListQuery(defaults: VideoListQuery = {}) {
   const [searchParams, setSearchParams] = useSearchParams()
+  const { state } = useLocation()
 
   const query = useMemo<VideoListQuery>(() => {
     return {
@@ -23,12 +24,13 @@ export function useVideoListQuery(defaults: VideoListQuery = {}) {
           else p.delete('filters')
           if (next.sort) p.set('sort', next.sort)
           else p.delete('sort')
+          p.delete('page')
           return p
         },
-        { replace: true },
+        { replace: true, state },
       )
     },
-    [setSearchParams],
+    [setSearchParams, state],
   )
 
   return { query, setQuery, searchParams, setSearchParams }

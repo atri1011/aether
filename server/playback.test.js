@@ -111,6 +111,34 @@ describe('topic playback HTTP contract', () => {
     assert.equal((await get('/api/video/missing-001')).status, 404)
   })
 
+  it('keeps failed actress pages retryable and distinguishes a successful empty tail page', async (t) => {
+    let mode = 'failed'
+    mockUpstream(t, async (url, options) => {
+      assert.ok(['/scrape/actresses', '/scrape/list'].includes(url.pathname))
+      assert.ok(JSON.parse(options.body).page >= 2)
+      if (mode === 'failed') return Response.json({ ok: false, error: 'upstream status 403' })
+      return Response.json({ ok: true, items: mode === 'empty' ? [] : [{ id: 'test-020', title: 'Page two' }], hasMore: mode !== 'empty' })
+    })
+    const endpoint = '/api/actresses/pagination-test?page=2&filters=individual'
+    for (const seed of ['', '&name=Test&avatarUrl=https%3A%2F%2Fexample.test%2Fportrait.jpg']) {
+      const failed = await get(endpoint + seed)
+      assert.equal(failed.status, 503)
+      assert.equal((await failed.json()).code, 'UPSTREAM')
+    }
+    mode = 'recovered'
+    const retry = await get(endpoint)
+    assert.equal(retry.status, 200)
+    const data = await retry.json()
+    assert.equal(data.page, 2)
+    assert.deepEqual(data.items.map((item) => item.id), ['test-020'])
+    mode = 'empty'
+    const tail = await get(endpoint.replace('page=2', 'page=3'))
+    assert.equal(tail.status, 200)
+    const empty = await tail.json()
+    assert.deepEqual(empty.items, [])
+    assert.equal(empty.hasMore, false)
+  })
+
   it('preserves signed URLs, rewrites keys relative to redirects, and rejects invalid playlists', async (t) => {
     const target = 'https://v.hersav.me/original/main.m3u8?token=%2F%2B&expires=123'
     let invalid = false

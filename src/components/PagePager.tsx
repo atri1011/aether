@@ -2,37 +2,41 @@ import { useEffect, useMemo, useState } from 'react'
 
 type Props = {
   page: number
-  maxPage: number
+  maxPage?: number | null
+  hasMore?: boolean
   onChange: (page: number) => void
   disabled?: boolean
   prevLabel?: string
   nextLabel?: string
 }
 
-/** MissAV-style pager: prev / next + numbered window + jump input "N / total". */
+/** Manual pager; only show a total when the source supplies one. */
 export function PagePager({
   page,
   maxPage,
+  hasMore = false,
   onChange,
   disabled,
   prevLabel = '上一页',
   nextLabel = '下一页',
 }: Props) {
-  const total = Math.max(1, maxPage || 1)
-  const current = Math.min(Math.max(1, page || 1), total)
+  const total = maxPage != null && Number.isSafeInteger(maxPage) && maxPage > 0 ? maxPage : null
+  const current = Math.min(Math.max(1, page || 1), total ?? Infinity)
+  const lastAvailable = total ?? Math.min(Number.MAX_SAFE_INTEGER, current + (hasMore ? 1 : 0))
   const [draft, setDraft] = useState(String(current))
 
   useEffect(() => {
     setDraft(String(current))
   }, [current])
 
-  const numbers = useMemo(() => buildPageWindow(current, total), [current, total])
+  const numbers = useMemo(() => buildPageWindow(current, lastAvailable), [current, lastAvailable])
 
-  if (total <= 1) return null
+  if (lastAvailable <= 1) return null
 
   const go = (n: number) => {
-    if (disabled) return
-    const next = Math.min(Math.max(1, n), total)
+    if (disabled || !Number.isSafeInteger(n)) return
+    const next = Math.min(Math.max(1, n), total ?? Number.MAX_SAFE_INTEGER)
+    setDraft(String(next))
     if (next !== current) onChange(next)
   }
 
@@ -74,12 +78,12 @@ export function PagePager({
             onChange={(e) => setDraft(e.target.value.replace(/[^\d]/g, ''))}
             onBlur={submitJump}
           />
-          <span className="page-pager-total">/ {total}</span>
+          {total != null && <span className="page-pager-total">/ {total}</span>}
         </form>
         <button
           type="button"
           className="page-pager-btn"
-          disabled={disabled || current >= total}
+          disabled={disabled || current >= lastAvailable}
           onClick={() => go(current + 1)}
         >
           {nextLabel}
@@ -118,7 +122,7 @@ export function PagePager({
         <button
           type="button"
           className="page-pager-num"
-          disabled={disabled || current >= total}
+          disabled={disabled || current >= lastAvailable}
           onClick={() => go(current + 1)}
           aria-label={nextLabel}
         >
@@ -141,7 +145,7 @@ export function PagePager({
             onChange={(e) => setDraft(e.target.value.replace(/[^\d]/g, ''))}
             onBlur={submitJump}
           />
-          <span className="page-pager-total">/ {total}</span>
+          {total != null && <span className="page-pager-total">/ {total}</span>}
         </form>
       </div>
     </nav>
@@ -157,15 +161,16 @@ function buildPageWindow(current: number, total: number): Array<number | '…'> 
   const set = new Set<number>()
   set.add(1)
   set.add(total)
-  for (let i = current - 2; i <= current + 2; i++) {
-    if (i >= 1 && i <= total) set.add(i)
+  for (let offset = -2; offset <= 2; offset++) {
+    const n = current + offset
+    if (n >= 1 && n <= total) set.add(n)
   }
   // keep first/last cluster denser like MissAV
   if (current <= 4) {
     for (let i = 1; i <= 5; i++) set.add(i)
   }
   if (current >= total - 3) {
-    for (let i = total - 4; i <= total; i++) set.add(i)
+    for (let offset = 4; offset >= 0; offset--) set.add(total - offset)
   }
 
   const sorted = [...set].sort((a, b) => a - b)

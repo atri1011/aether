@@ -3,7 +3,7 @@ import { api } from '../lib/api'
 import type { VideoFilterOptions } from '../types'
 import { useLocale } from '../context'
 import { VideoGrid } from '../components/VideoGrid'
-import { InfiniteSentinel } from '../components/InfiniteSentinel'
+import { PagePager } from '../components/PagePager'
 import { usePagedList } from '../hooks/usePagedList'
 import { VideoFilterBar } from '../components/VideoFilterBar'
 import { useVideoListQuery } from '../hooks/useVideoListQuery'
@@ -45,19 +45,17 @@ export function BrowsePage() {
     [locale, query],
   )
 
-  const { items, loading, loadingMore, error, hasMore, loadMore } = usePagedList(loader, [
+  const { items, page, setPage, loading, error, hasMore, reload } = usePagedList(loader, [
     locale,
     query.filters,
     query.sort,
   ])
 
-  if (error && !items.length) return <div className="state error">{error}</div>
-
   return (
     <section className="section">
       <div className="section-head">
         <h2>{tr('browse')}</h2>
-        <span className="card-sub">{items.length ? `${items.length}+` : ''}</span>
+        <span className="card-sub">{items.length ? `${items.length} ${tr('videoCount')}` : ''}</span>
       </div>
       <VideoFilterBar options={filterOptions} value={query} onChange={setQuery} />
       {loading && !items.length ? (
@@ -65,20 +63,22 @@ export function BrowsePage() {
       ) : items.length ? (
         <VideoGrid items={items} />
       ) : (
-        <div className="state">{tr('empty')}</div>
+        !error && <div className="state">{tr('empty')}</div>
       )}
-      <InfiniteSentinel
-        onVisible={loadMore}
-        disabled={!hasMore}
-        loading={loadingMore}
-        label={tr('loadMore')}
-        loadingLabel={tr('loadingMore')}
-      />
-      {!hasMore && items.length > 0 && (
-        <div className="state" style={{ padding: '1.25rem' }}>
-          {tr('endOfList')}
+      {error && (
+        <div className="state error" role="alert">
+          <p>{error}</p>
+          <button type="button" className="btn" onClick={() => void reload()}>{tr('retry')}</button>
         </div>
       )}
+      <PagePager
+        page={page}
+        hasMore={hasMore}
+        onChange={setPage}
+        disabled={loading}
+        prevLabel={tr('prevPage')}
+        nextLabel={tr('nextPage')}
+      />
     </section>
   )
 }
