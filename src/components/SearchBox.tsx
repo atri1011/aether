@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, ty
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useLocale } from '../context'
 import { api, formatDuration, isAbortError } from '../lib/api'
+import { addSearchHistory, clearSearchHistory, loadSearchHistory, removeSearchHistory } from '../lib/searchHistory'
 import type { SearchSuggestion, SearchSuggestions } from '../types'
 
 function Highlight({ text, query }: { text: string; query: string }) {
@@ -43,9 +44,12 @@ export function SearchBox({ autoFocus = false, onNavigate, placement = 'below', 
     data?: SearchSuggestions
     error?: boolean
   } | null>(null)
+  const [history, setHistory] = useState<string[]>(() => loadSearchHistory())
   const query = q.trim()
   const requestKey = `${locale}:${query}`
   const expanded = open && Boolean(query) && !composing
+  // Empty input + focus → show recent searches instead of suggestions.
+  const historyOpen = open && !query && !composing && history.length > 0
   // A previous response is never selectable while a new query is debouncing.
   const current = result?.key === requestKey ? result : null
   const items = current?.data?.items || []
@@ -140,13 +144,29 @@ export function SearchBox({ autoFocus = false, onNavigate, placement = 'below', 
     onNavigate?.()
   }
 
-  function searchAll() {
-    if (!query || composingRef.current) return
+  function searchAll(term = query) {
+    const t = term.trim()
+    if (!t || composingRef.current) return
+    setHistory((list) => addSearchHistory(list, t))
     finish()
-    navigate(`/search?q=${encodeURIComponent(current?.data?.query || query)}`)
+    navigate(`/search?q=${encodeURIComponent(current?.data?.query || t)}`)
+  }
+
+  function searchHistoryTerm(term: string) {
+    setQ(term)
+    searchAll(term)
+  }
+
+  function removeHistoryTerm(term: string) {
+    setHistory((list) => removeSearchHistory(list, term))
+  }
+
+  function clearAllHistory() {
+    setHistory(clearSearchHistory())
   }
 
   function select(item: SearchSuggestion) {
+    if (query) setHistory((list) => addSearchHistory(list, current?.data?.query || query))
     finish()
     navigate(targetOf(item), item.kind === 'actress' ? { state: { actress: item.actress } } : undefined)
   }
@@ -165,7 +185,7 @@ export function SearchBox({ autoFocus = false, onNavigate, placement = 'below', 
     if (event.key === 'Tab') {
       setOpen(false)
       setActiveIndex(-1)
-    } else if (event.key === 'Escape' && expanded) {
+    } else if (event.key === 'Escape' && (expanded || historyOpen)) {
       event.preventDefault()
       event.stopPropagation()
       setOpen(false)
@@ -188,7 +208,6 @@ export function SearchBox({ autoFocus = false, onNavigate, placement = 'below', 
   const status = loading ? tr('searchSuggestLoading')
     : current?.error ? tr('searchSuggestError')
       : items.length ? `${items.length} ${tr('searchSuggestCount')}` : tr('searchSuggestEmpty')
-
   return (
     <div
       ref={rootRef}
@@ -268,6 +287,50 @@ export function SearchBox({ autoFocus = false, onNavigate, placement = 'below', 
       <span className="search-sr-status" role="status" aria-live="polite" aria-atomic="true">
         {expanded ? status : ''}
       </span>
+      {historyOpen && (
+        <div className="search-suggestions search-history">
+          <div className="search-suggestions-heading">
+            <span>{tr('searchHistory')}</span>
+            <button
+              type="button"
+              className="search-history-clear"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={clearAllHistory}
+            >
+              {tr('searchHistoryClear')}
+            </button>
+          </div>
+          <ul className="search-history-list" aria-label={tr('searchHistory')}>
+            {history.map((term) => (
+              <li key={term}>
+                <button
+                  type="button"
+                  className="search-history-item"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => searchHistoryTerm(term)}
+                >
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" aria-hidden="true">
+                    <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" />
+                    <path d="M12 7.5V12l3 1.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                  <span className="search-history-term">{term}</span>
+                </button>
+                <button
+                  type="button"
+                  className="search-history-remove"
+                  aria-label={`${tr('searchHistoryRemove')}: ${term}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => removeHistoryTerm(term)}
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+                    <path d="m7 7 10 10M17 7 7 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {expanded && (
         <div className="search-suggestions">
           <div className="search-suggestions-heading">
@@ -324,7 +387,7 @@ export function SearchBox({ autoFocus = false, onNavigate, placement = 'below', 
           )}
           {!loading && !items.length && <p className="search-suggestion-message">{status}</p>}
           {current?.data?.partial && <p className="search-suggestion-message">{tr('searchSuggestPartial')}</p>}
-          <button type="button" className="search-suggestions-all" onMouseDown={(event) => event.preventDefault()} onClick={searchAll}>
+          <button type="button" className="search-suggestions-all" onMouseDown={(event) => event.preventDefault()} onClick={() => searchAll()}>
             <span>{tr('searchAllResults')} <strong>“{query}”</strong></span>
             <span aria-hidden="true">↗</span>
           </button>

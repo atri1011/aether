@@ -256,6 +256,103 @@
   color: var(--ink-dim);
 }
 
+/* ── Search history (empty-input dropdown) ─────────────── */
+
+.search-history .search-suggestions-heading {
+  padding-bottom: 0.4rem;
+}
+
+.search-history-clear {
+  padding: 0.1rem 0.4rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--ink-dim);
+  background: transparent;
+  font-size: 0.72rem;
+  transition: background var(--dur-1) ease, color var(--dur-1) ease;
+}
+
+.search-history-clear:hover {
+  background: var(--accent-mist);
+  color: var(--ink);
+}
+
+.search-history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-history-list li {
+  display: flex;
+  align-items: center;
+}
+
+.search-history-item {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  min-height: var(--touch-min);
+  padding: 0 0.65rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  color: var(--ink);
+  transition: background var(--dur-1) ease;
+}
+
+.search-history-item:hover,
+.search-history-item:focus-visible {
+  background: var(--accent-mist);
+}
+
+.search-history-item svg {
+  flex-shrink: 0;
+  color: var(--ink-dim);
+}
+
+.search-history-term {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.86rem;
+}
+
+.search-history-remove {
+  display: grid;
+  place-items: center;
+  flex: 0 0 var(--touch-min);
+  height: var(--touch-min);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--ink-dim);
+  background: transparent;
+  opacity: 0;
+  transition: background var(--dur-1) ease, color var(--dur-1) ease, opacity var(--dur-1) ease;
+}
+
+.search-history-list li:hover .search-history-remove,
+.search-history-list li:focus-within .search-history-remove,
+.search-history-remove:focus-visible {
+  opacity: 1;
+}
+
+.search-history-remove:hover {
+  background: var(--accent-mist);
+  color: var(--ink);
+}
+
+@media (hover: none) {
+  /* Touch devices have no hover — keep remove buttons visible. */
+  .search-history-remove {
+    opacity: 1;
+  }
+}
+
 .search-suggestion-skeleton {
   display: flex;
   align-items: center;
