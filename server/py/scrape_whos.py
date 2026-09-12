@@ -15,8 +15,9 @@ import html as html_lib
 import json
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, unquote, urljoin, urlparse
 
 try:
     from curl_cffi import requests
@@ -87,7 +88,7 @@ _session = None
 def _sess():
     global _session
     if _session is None:
-        _session = requests.Session()
+        _session = requests.Session(curl_options=CURL_OPTS or None)
     return _session
 
 
@@ -127,33 +128,18 @@ def _fetch(url: str, *, referer: str | None = None, timeout: int = 35) -> str:
                 "impersonate": impersonate,
                 "allow_redirects": True,
             }
-            if CURL_OPTS:
-                kwargs["curl_options"] = CURL_OPTS
             r = _sess().get(url, **kwargs)
-        except TypeError:
-            # Older curl_cffi without curl_options support
-            try:
-                r = _sess().get(
-                    url,
-                    headers=headers,
-                    timeout=timeout,
-                    impersonate=impersonate,
-                    allow_redirects=True,
-                )
-            except Exception as e:
-                last_err = str(e)
-                continue
         except Exception as e:
             last_err = str(e)
             continue
-        if r.status_code in {403, 503, 429, 520, 521, 522, 523, 524}:
+        if r.status_code in {403, 429, 502, 503, 504, 520, 521, 522, 523, 524}:
             last_err = f"HTTP {r.status_code}"
             continue
         if r.status_code >= 400:
             raise RuntimeError(f"HTTP {r.status_code} for {url}")
         text = r.text or ""
-        if len(text) < 400 and "just a moment" in text.lower():
-            last_err = "cloudflare challenge"
+        if re.search(r"<title>\s*Just a moment", text, re.I):
+            last_err = "upstream verification page"
             continue
         return text
     raise RuntimeError(f"{last_err} for {url}")
@@ -177,6 +163,13 @@ def _parse_timestamp(title: str) -> str:
     return m.group(1) if m else ""
 
 
+def _seek_seconds(timestamp: str) -> int | None:
+    if not re.fullmatch(r"\d{1,2}:\d{2}:\d{2}", timestamp or ""):
+        return None
+    hours, minutes, seconds = map(int, timestamp.split(":"))
+    return hours * 3600 + minutes * 60 + seconds
+
+
 def _parse_actress(title: str) -> str:
     m = re.search(r"(?:女优|Actress)\[([^\]]+)\]", title or "", re.I)
     return _clean(m.group(1)) if m else ""
@@ -186,7 +179,7 @@ def parse_frame_cards(html: str) -> list[dict]:
     items: list[dict] = []
     seen: set[str] = set()
     for m in re.finditer(
-        r'<a[^>]*href="(/frames/(\d+))"[^>]*class="[^"]*frame-card[^"]*"[^>]*>(.*?)</a>',
+        r'<a[^>]*href="(/(?:en/|ja/|zh-tw/)?frames/(\d+))"[^>]*>(.*?)</a>',
         html or "",
         re.I | re.S,
     ):
@@ -194,6 +187,8 @@ def parse_frame_cards(html: str) -> list[dict]:
         if fid in seen:
             continue
         block = m.group(0)
+        if "frame-card" not in block and "data-frame-id" not in block:
+            continue
         title_m = re.search(r'data-frame-title="([^"]*)"', block, re.I)
         title = _clean(title_m.group(1) if title_m else "")
         if not title:
@@ -217,6 +212,7 @@ def parse_frame_cards(html: str) -> list[dict]:
                 "imageUrl": img,
                 "code": code,
                 "timestamp": _parse_timestamp(title),
+                "seekSec": _seek_seconds(_parse_timestamp(title)),
                 "actress": _parse_actress(title),
                 "path": m.group(1),
             }
@@ -451,13 +447,13 @@ def scrape_frame_detail(frame_id: str, locale: str = "zh") -> dict:
 
     # Primary image: first f.imgcaches frame image
     imgs = re.findall(
-        r'src="(https?://f\.imgcaches\.cc/video_frames/[^"]+)"',
+        r'src="(https?://f\.(?:imgcaches\.cc|hersav\.me)/video_frames/[^"]+)"',
         html,
         re.I,
     )
     image_url = imgs[0] if imgs else ""
 
-    video_m = re.search(r'href="(/videos/([^"?]+)(?:\?t=(\d+))?)"', html, re.I)
+    video_m = re.search(r'href="(/(?:en/|ja/|zh-tw/)?videos/([^"?]+)(?:\?t=(\d+))?)"', html, re.I)
     code = (video_m.group(2) if video_m else "").lower()
     seek_sec = int(video_m.group(3)) if video_m and video_m.group(3) else None
 
@@ -478,6 +474,8 @@ def scrape_frame_detail(frame_id: str, locale: str = "zh") -> dict:
 
     if not code:
         code = _parse_code_from_title(title)
+    if not code:
+        return {"ok": False, "error": "frame video missing"}
 
     label_m = re.search(r'data-frame-label="([^"]+)"', html, re.I)
     label = _clean(label_m.group(1) if label_m else "")
@@ -504,7 +502,7 @@ def scrape_frame_detail(frame_id: str, locale: str = "zh") -> dict:
             "code": code,
             "timestamp": timestamp,
             "actress": actress,
-            "seekSec": seek_sec,
+            "seekSec": seek_sec if seek_sec is not None else _seek_seconds(timestamp),
             "label": label,
             "tags": tags,
             "path": f"/frames/{fid}",
@@ -640,6 +638,86 @@ def scrape_topics(
     }
 
 
+def _cover_url(block: str) -> str:
+    image = re.search(r'(?:src|data-src|data-thumbnail)="(https?://[^"]+)"', block, re.I)
+    if image:
+        return _clean(image.group(1))
+    encoded = re.search(r'data-cover-src="([0-9a-f]+)"', block, re.I)
+    if encoded:
+        try:
+            data = bytes.fromhex(encoded.group(1))
+            url = bytes(value ^ data[-1] for value in data[:-1]).decode("utf-8")
+            if url.startswith(("https://", "http://")):
+                return url
+        except (ValueError, UnicodeError, IndexError):
+            pass
+    return ""
+
+
+def parse_video_cards(html: str) -> list[dict]:
+    items = []
+    seen = set()
+    for match in re.finditer(
+        r'<a\b[^>]*href="/(?:en/|ja/|zh-tw/)?videos/([a-z0-9._-]+)"[^>]*>(.*?)</a>',
+        html or "", re.I | re.S,
+    ):
+        video_id = match.group(1).lower()
+        if video_id in seen:
+            continue
+        block = match.group(2)
+        title = re.search(r'<h[23][^>]*>(.*?)</h[23]>', block, re.I | re.S)
+        alt = re.search(r'alt="([^"]+)"', block, re.I)
+        items.append({
+            "id": video_id,
+            "title": _clean(re.sub(r"<[^>]+>", "", title.group(1))) if title else _clean(alt.group(1)) if alt else video_id.upper(),
+            "coverUrl": _cover_url(block),
+        })
+        seen.add(video_id)
+    return items
+
+
+def parse_video_detail(html: str, video_id: str) -> dict:
+    # Only the main player's source belongs to this title; ignore preview/related players.
+    player = re.search(r'<video-player\b(?=[^>]*data-main="true")[^>]*>.*?</video-player>', html, re.I | re.S)
+    source = re.search(r'<source\b[^>]*src="([^"]+)"', player.group(0), re.I) if player else None
+    master_url = _clean(source.group(1)) if source else ""
+    parsed_url = urlparse(master_url)
+    if parsed_url.scheme not in ("https", "http") or parsed_url.hostname != "v.hersav.me" or parsed_url.username or parsed_url.password:
+        master_url = ""
+    title = re.search(r'<h1[^>]*>(.*?)</h1>', html, re.I | re.S)
+    cover = re.search(r'<meta\b[^>]*property="og:image"[^>]*content="([^"]+)"', html, re.I)
+    # Metadata ends before the frame/recommendation grids, whose credits may differ.
+    main = html.split('id="video-player-wrapper"', 1)[-1].split('class="frame-card', 1)[0]
+    duration = re.search(r'(?:时长|Duration)[\s\S]{0,100}?<span[^>]*>\s*(\d+)\s*(?:分钟|min)', main, re.I)
+    released = re.search(r'(?:发行日期|Release Date)[\s\S]{0,100}?<span[^>]*>\s*(\d{4}-\d{2}-\d{2})', main, re.I)
+    def names(kind):
+        return list(dict.fromkeys(unquote(name) for name in re.findall(rf'href="/(?:en/|ja/|zh-tw/)?{kind}/([^"?]+)"', main, re.I)))
+    item = {
+        "id": video_id,
+        "title": _clean(re.sub(r"<[^>]+>", "", title.group(1))) if title else video_id.upper(),
+        "coverUrl": _clean(cover.group(1)) if cover else "",
+        "durationSec": int(duration.group(1)) * 60 if duration else 0,
+        "releasedAt": released.group(1) if released else None,
+        "actresses": names("actresses"),
+        "labels": names("makers"),
+    }
+    return {"item": item, "stream": {"uuid": None, "masterUrl": master_url} if master_url else None}
+
+
+def scrape_video_detail(video_id: str, locale: str = "zh") -> dict:
+    video_id = str(video_id or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,160}", video_id):
+        return {"ok": False, "error": "invalid video id"}
+    url = f"{BASE}{_locale_prefix(locale)}/videos/{video_id}"
+    try:
+        html = _fetch(url)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    if not re.search(r'<h1\b', html, re.I):
+        return {"ok": False, "error": "video detail missing"}
+    return {"ok": True, "source": "whos", "url": url, **parse_video_detail(html, video_id)}
+
+
 def scrape_topic_detail(topic_id: str, page: int = 1, locale: str = "zh") -> dict:
     tid = re.sub(r"[^\d]", "", str(topic_id or ""))
     if not tid:
@@ -647,9 +725,20 @@ def scrape_topic_detail(topic_id: str, page: int = 1, locale: str = "zh") -> dic
     page = max(1, int(page or 1))
     prefix = _locale_prefix(locale)
     path = f"/topics/details/{tid}"
-    if page > 1:
-        path += f"/page-{page}"
     url = f"{BASE}{prefix}{path}"
+    # Current topic pagination returns separate HTML fragments, not /page-N pages.
+    if page > 1:
+        def fetch_page(kind):
+            return _fetch(f"{BASE}{prefix}/ajax/topics/{tid}/{kind}?page={page}&page_size=20", referer=url)
+        try:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                video_html, frame_html = list(pool.map(fetch_page, ("video", "frame")))
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        videos, frames = parse_video_cards(video_html), parse_frame_cards(frame_html)
+        return {"ok": True, "source": "whos", "page": page, "item": None,
+                "videos": videos, "frames": frames,
+                "hasMore": len(videos) >= 20 or len(frames) >= 20}
     try:
         html = _fetch(url)
     except Exception as e:
@@ -689,22 +778,23 @@ def scrape_topic_detail(topic_id: str, page: int = 1, locale: str = "zh") -> dic
         cover = cm.group(1)
 
     frames = parse_frame_cards(html)
-    frame_count = None
-    fcm = re.search(r">\s*([\d,]+)\s*<[\s\S]{0,40}?帧", html)
-    if fcm:
-        try:
-            frame_count = int(fcm.group(1).replace(",", ""))
-        except ValueError:
-            pass
-
-    max_page = _max_page(html, f"/topics/details/{tid}")
-    has_more = (max_page is not None and page < max_page) or len(frames) >= 16
+    videos = parse_video_cards(html)
+    if not cover and videos:
+        cover = videos[0]["coverUrl"]
+    if not cover and frames:
+        cover = frames[0]["imageUrl"]
+    def count(label):
+        match = re.search(rf'<span[^>]*>\s*([\d,]+)\s*</span>\s*<span[^>]*>\s*(?:<span[^>]*></span>\s*)?(?:{label})', html, re.I)
+        return int(match.group(1).replace(",", "")) if match else None
+    frame_count = count("精选帧|Frames")
+    video_count = count("收录影片|Videos")
+    has_more = (frame_count > len(frames) if frame_count is not None else len(frames) >= 20) or (video_count > len(videos) if video_count is not None else len(videos) >= 20)
 
     return {
         "ok": True,
         "source": "whos",
         "page": page,
-        "maxPage": max_page,
+        "maxPage": None,
         "hasMore": has_more,
         "item": {
             "id": tid,
@@ -712,9 +802,11 @@ def scrape_topic_detail(topic_id: str, page: int = 1, locale: str = "zh") -> dic
             "description": description,
             "coverUrl": cover,
             "frameCount": frame_count,
+            "videoCount": video_count,
             "path": f"/topics/details/{tid}",
         },
         "frames": frames,
+        "videos": videos,
         "url": url,
     }
 
@@ -984,6 +1076,7 @@ def main(argv: list[str]) -> int:
       categories [locale]
       frames [type|-] [labelId|-] [page] [locale]
       frame <id> [locale]
+      video <id> [locale]
       topics [category|-] [page] [locale]
       topic <id> [page] [locale]
       ranking [video|actress] [locale]
@@ -1020,6 +1113,10 @@ def main(argv: list[str]) -> int:
             fid = argv[2] if len(argv) > 2 else ""
             locale = argv[3] if len(argv) > 3 else "zh"
             data = scrape_frame_detail(fid, locale)
+        elif mode == "video":
+            video_id = argv[2] if len(argv) > 2 else ""
+            locale = argv[3] if len(argv) > 3 else "zh"
+            data = scrape_video_detail(video_id, locale)
         elif mode == "topics":
             cat = argv[2] if len(argv) > 2 and argv[2] not in {"-", ""} else ""
             page = int(argv[3]) if len(argv) > 3 else 1

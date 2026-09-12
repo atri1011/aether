@@ -1,5 +1,6 @@
 export interface VideoSummary {
   id: string
+  source?: 'whos'
   code: string
   title: string
   titleJa?: string
@@ -17,7 +18,7 @@ export interface VideoSummary {
 }
 
 export interface StreamInfo {
-  uuid: string
+  uuid: string | null
   masterUrl: string
   sources?: { quality: string; url: string }[]
 }

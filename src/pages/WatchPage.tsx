@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api, formatDate, formatDuration, isAbortError } from '../lib/api'
-import type { SubtitleTrack, VideoDetail } from '../types'
+import type { SubtitleTrack, VideoDetail, VideoSummary } from '../types'
 import { useLocale } from '../context'
 import { Player, type SubtitleOption } from '../components/Player'
 import { VideoGrid } from '../components/VideoGrid'
@@ -99,6 +99,10 @@ function toSubtitleOptions(items: SubtitleTrack[]): SubtitleOption[] {
 
 export function WatchPage() {
   const { id = '' } = useParams()
+  const [sp] = useSearchParams()
+  const source = sp.get('source') === 'whos' ? 'whos' : undefined
+  const seek = Number(sp.get('t'))
+  const startTime = Number.isFinite(seek) && seek > 0 ? seek : 0
   const { locale, tr } = useLocale()
   const [video, setVideo] = useState<VideoDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -108,17 +112,24 @@ export function WatchPage() {
   const [manual, setManual] = useState('')
   const [overrideSrc, setOverrideSrc] = useState<string | null>(null)
   const [subtitleTracks, setSubtitleTracks] = useState<SubtitleOption[] | null>(null)
+  const [related, setRelated] = useState<VideoSummary[]>([])
+  const [playerAttempt, setPlayerAttempt] = useState(0)
+  const [resumeTime, setResumeTime] = useState<number | null>(null)
+  const retryRef = useRef<AbortController | null>(null)
 
   // Meta first (OPT-07); abort on id/locale change (OPT-08)
   useEffect(() => {
     const ac = new AbortController()
+    setVideo(null)
     setLoading(true)
     setError(null)
     setOverrideSrc(null)
     setStreamResolving(false)
     setSubtitleTracks(null)
+    setRelated([])
+    setResumeTime(null)
     api
-      .video(id, locale, { signal: ac.signal })
+      .video(id, locale, { signal: ac.signal, source })
       .then((d) => {
         if (ac.signal.aborted) return
         setVideo(d)
@@ -131,8 +142,9 @@ export function WatchPage() {
       })
     return () => {
       ac.abort()
+      retryRef.current?.abort()
     }
-  }, [id, locale])
+  }, [id, locale, source])
 
   // Auto resolve stream when meta arrived without masterUrl
   useEffect(() => {
@@ -146,12 +158,16 @@ export function WatchPage() {
     const ac = new AbortController()
     setStreamResolving(true)
     api
-      .resolveStream(id, locale, { signal: ac.signal })
+      .resolveStream(id, locale, { signal: ac.signal, source })
       .then((d) => {
-        if (!ac.signal.aborted) setVideo(d)
+        if (!ac.signal.aborted) {
+          setVideo(d)
+          setStreamResolving(false)
+        }
       })
       .catch((e: Error) => {
         if (isAbortError(e) || ac.signal.aborted) return
+        setStreamResolving(false)
         setVideo((prev) =>
           prev
             ? {
@@ -162,21 +178,28 @@ export function WatchPage() {
             : prev,
         )
       })
-      .finally(() => {
-        if (!ac.signal.aborted) setStreamResolving(false)
-      })
     return () => {
       ac.abort()
     }
-  }, [video, loading, id, locale])
+  }, [video, loading, id, locale, source])
 
   const src = useMemo(() => {
     if (overrideSrc) return overrideSrc
     return video?.stream?.masterUrl || null
   }, [overrideSrc, video])
 
-  // Probe external Chinese subs when the catalog says none are bundled
-  const probeSubtitles = !loading && !!video && !video.hasChineseSubtitle
+  // Recommendations and subtitle discovery never delay stream readiness.
+  const relatedId = !loading && src ? video?.id : undefined
+  useEffect(() => {
+    if (!relatedId) return
+    const ac = new AbortController()
+    api.videoRelated(relatedId, locale, { signal: ac.signal })
+      .then((d) => { if (!ac.signal.aborted) setRelated(d.items || []) })
+      .catch(() => {})
+    return () => ac.abort()
+  }, [relatedId, locale])
+
+  const probeSubtitles = !loading && !!src && !!video && !video.hasChineseSubtitle
   useEffect(() => {
     setSubtitleTracks(null)
     if (!probeSubtitles || !id) return
@@ -194,15 +217,41 @@ export function WatchPage() {
     return () => {
       ac.abort()
     }
-    // `video` is gated by probeSubtitles; only `id` + `durationSec` feed the
-    // request. Use `streamStatus` (not the whole `video` object) as the trigger
-    // so resolveStream's rebuilt `video` reference doesn't re-fire this probe
-    // when the duration is unchanged.
+    // Resolving or refreshing a stream should not repeat subtitle discovery.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [probeSubtitles, id, locale, video?.durationSec, video?.streamStatus])
+  }, [probeSubtitles, id, locale, video?.durationSec])
+
+  function retryStream(position = startTime) {
+    retryRef.current?.abort()
+    const ac = new AbortController()
+    retryRef.current = ac
+    setStreamResolving(true)
+    api.resolveStream(id, locale, { signal: ac.signal, source, refresh: true })
+      .then((d) => {
+        if (ac.signal.aborted) return
+        setError(null)
+        setOverrideSrc(null)
+        setResumeTime(position)
+        setVideo(d)
+        setPlayerAttempt((attempt) => attempt + 1)
+      })
+      .catch((e: Error) => {
+        if (isAbortError(e) || ac.signal.aborted) return
+        if (!video) setError(e.message)
+        setVideo((prev) => prev ? { ...prev, stream: null, streamStatus: 'error', streamError: { message: e.message } } : prev)
+      })
+      .finally(() => { if (!ac.signal.aborted) setStreamResolving(false) })
+  }
 
   if (loading) return <WatchSkeleton />
-  if (error) return <div className="state error">{error}</div>
+  if (error) return (
+    <div className="state error" role="alert">
+      <p>{error}</p>
+      <button type="button" className="btn" disabled={streamResolving} onClick={() => retryStream()}>
+        {streamResolving ? tr('loading') : tr('retry')}
+      </button>
+    </div>
+  )
   if (!video) return <div className="state">{tr('empty')}</div>
 
   return (
@@ -210,7 +259,11 @@ export function WatchPage() {
       <div className={`detail${theatre ? ' theatre-layout' : ''}`}>
         <div>
           <Player
+            key={`${id}:${source || 'missav'}:${playerAttempt}`}
             src={src}
+            startTime={resumeTime ?? startTime}
+            onRetry={retryStream}
+            retrying={streamResolving}
             poster={video.coverUrl}
             theatre={theatre}
             onToggleTheatre={() => setTheatre((v) => !v)}
@@ -220,6 +273,8 @@ export function WatchPage() {
               exitTheatre: tr('exitTheatre'),
               play: tr('play'),
               pause: tr('pause'),
+              retry: tr('retry'),
+              playbackError: tr('playbackError'),
               fullscreen: tr('fullscreen'),
               exitFullscreen: tr('exitFullscreen'),
               quality: tr('quality'),
@@ -243,7 +298,7 @@ export function WatchPage() {
                 ? ` — ${video.streamError.message}`
                 : ''}
               <br />
-              {tr('streamHint')}
+              {!streamResolving && <button type="button" className="btn" onClick={() => retryStream()}>{tr('retry')}</button>}
             </p>
           )}
           {probeSubtitles && subtitleTracks && subtitleTracks.length === 0 && (
@@ -279,14 +334,7 @@ export function WatchPage() {
                 type="button"
                 className="btn"
                 disabled={streamResolving}
-                onClick={() => {
-                  setStreamResolving(true)
-                  api
-                    .resolveStream(id, locale)
-                    .then(setVideo)
-                    .catch((e: Error) => setError(e.message))
-                    .finally(() => setStreamResolving(false))
-                }}
+                onClick={() => retryStream()}
               >
                 {tr('resolveAgain')}
               </button>
@@ -332,12 +380,12 @@ export function WatchPage() {
         </aside>
       </div>
 
-      {!!video.related?.length && (
+      {related.length > 0 && (
         <section className="section" style={{ marginTop: '2rem' }}>
           <div className="section-head">
             <h2>{tr('related')}</h2>
           </div>
-          <VideoGrid items={video.related} />
+          <VideoGrid items={related} />
         </section>
       )}
     </>

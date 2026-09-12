@@ -36,6 +36,7 @@ HEADERS = {
 }
 
 ALLOW_SUFFIXES = (
+    "v.hersav.me",
     "surrit.com",
     "fourhoi.com",
     "missav.ws",
@@ -45,18 +46,26 @@ ALLOW_SUFFIXES = (
 
 def allowed(url: str) -> bool:
     try:
-        host = urlparse(url).hostname or ""
+        parsed = urlparse(url)
+        if parsed.scheme not in ("https", "http") or parsed.username or parsed.password:
+            return False
+        host = parsed.hostname or ""
         host = host.lower()
         return any(host == s or host.endswith("." + s) for s in ALLOW_SUFFIXES)
     except Exception:
         return False
 
 
-def _fetch_upstream(url: str, *, stream: bool = False):
+def _fetch_upstream(url: str, *, stream: bool = False, range_header: str | None = None):
+    headers = dict(HEADERS)
+    if urlparse(url).hostname == "v.hersav.me":
+        headers.update({"Referer": "https://whos.tv/", "Origin": "https://whos.tv"})
+    if range_header:
+        headers["Range"] = range_header
     return SESSION.get(
         url,
         impersonate=IMPERSONATE,
-        headers=HEADERS,
+        headers=headers,
         timeout=40,
         allow_redirects=True,
         stream=stream,
@@ -70,12 +79,15 @@ class Handler(BaseHTTPRequestHandler):
         # quieter
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
-    def _send(self, code: int, body: bytes, content_type: str = "application/octet-stream"):
+    def _send(self, code: int, body: bytes, content_type: str = "application/octet-stream", headers=None):
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Cache-Control", "public, max-age=30")
+        for name, value in (headers or {}).items():
+            if value:
+                self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -97,11 +109,13 @@ class Handler(BaseHTTPRequestHandler):
             if not url or not allowed(url):
                 self._send(400, b"bad url", "text/plain")
                 return
+            r = None
+            headers_sent = False
             try:
-                r = _fetch_upstream(url, stream=True)
+                r = _fetch_upstream(url, stream=True, range_header=self.headers.get("Range"))
                 ctype = r.headers.get("content-type") or "application/octet-stream"
                 status = int(r.status_code or 502)
-                if status != 200:
+                if status not in (200, 206):
                     # drain a little for error text
                     try:
                         err = r.content[:500] if hasattr(r, "content") else b"error"
@@ -110,7 +124,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(status, err or b"error", "text/plain")
                     return
 
-                self.send_response(200)
+                self.send_response(status)
                 self.send_header("Content-Type", ctype)
                 cl = r.headers.get("content-length")
                 if cl:
@@ -118,12 +132,16 @@ class Handler(BaseHTTPRequestHandler):
                 ar = r.headers.get("accept-ranges")
                 if ar:
                     self.send_header("Accept-Ranges", ar)
+                cr = r.headers.get("content-range")
+                if cr:
+                    self.send_header("Content-Range", cr)
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header("Cache-Control", "public, max-age=120")
                 # Signal chunked if no length
                 if not cl:
                     self.send_header("Transfer-Encoding", "chunked")
                 self.end_headers()
+                headers_sent = True
 
                 try:
                     for chunk in r.iter_content(chunk_size=64 * 1024):
@@ -142,8 +160,14 @@ class Handler(BaseHTTPRequestHandler):
                     pass
                 return
             except Exception as e:
-                self._send(502, str(e).encode("utf-8", "replace"), "text/plain")
+                if not headers_sent:
+                    self._send(502, str(e).encode("utf-8", "replace"), "text/plain")
+                else:
+                    self.close_connection = True
                 return
+            finally:
+                if r is not None:
+                    r.close()
 
         if path != "/fetch":
             self._send(404, b"not found", "text/plain")
@@ -153,15 +177,23 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, b"bad url", "text/plain")
             return
 
+        r = None
         try:
-            r = _fetch_upstream(url)
+            r = _fetch_upstream(url, range_header=self.headers.get("Range"))
             ctype = r.headers.get("content-type") or "application/octet-stream"
-            if r.status_code != 200:
+            if r.status_code not in (200, 206):
                 self._send(r.status_code, r.content[:500] or b"error", "text/plain")
                 return
-            self._send(200, r.content, ctype)
+            self._send(r.status_code, r.content, ctype, {
+                "Content-Range": r.headers.get("content-range"),
+                "Accept-Ranges": r.headers.get("accept-ranges"),
+                "X-Upstream-Url": str(r.url),
+            })
         except Exception as e:
             self._send(502, str(e).encode("utf-8", "replace"), "text/plain")
+        finally:
+            if r is not None:
+                r.close()
 
 
 def main():

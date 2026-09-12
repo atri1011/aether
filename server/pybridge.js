@@ -292,6 +292,8 @@ export function pyScrapeWhos(mode, opts = {}) {
     ]
   } else if (m === 'frame') {
     args = ['frame', String(opts.id || opts.frameId || ''), loc]
+  } else if (m === 'video') {
+    args = ['video', String(opts.id || ''), loc]
   } else if (m === 'topics') {
     args = ['topics', dash(opts.category), String(opts.page || 1), loc]
   } else if (m === 'topic') {

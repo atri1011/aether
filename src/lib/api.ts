@@ -34,6 +34,7 @@ import {
 import { defaultSortForCategory } from './videoListDefaults'
 
 export type FetchOpts = { signal?: AbortSignal }
+type VideoFetchOpts = FetchOpts & { source?: 'whos'; refresh?: boolean }
 
 function isAbortError(e: unknown) {
   return (
@@ -269,10 +270,15 @@ export const api = {
       locale,
       opts,
     ),
-  video: (id: string, locale: Locale, opts?: FetchOpts) =>
-    getJson<VideoDetail>(`/api/video/${encodeURIComponent(id)}?locale=${locale}`, locale, opts),
-  resolveStream: async (id: string, locale: Locale, opts?: FetchOpts) => {
-    const res = await fetch(`/api/video/${encodeURIComponent(id)}/resolve-stream`, {
+  video: (id: string, locale: Locale, opts?: VideoFetchOpts) =>
+    getJson<VideoDetail>(`/api/video/${encodeURIComponent(id)}?locale=${locale}${opts?.source === 'whos' ? '&source=whos' : ''}`, locale, opts),
+  videoRelated: (id: string, locale: Locale, opts?: FetchOpts) =>
+    getJson<{ items: VideoSummary[] }>(`/api/video/${encodeURIComponent(id)}/related?locale=${locale}`, locale, opts),
+  resolveStream: async (id: string, locale: Locale, opts?: VideoFetchOpts) => {
+    const p = new URLSearchParams()
+    if (opts?.source === 'whos') p.set('source', 'whos')
+    if (opts?.refresh) p.set('refresh', '1')
+    const res = await fetch(`/api/video/${encodeURIComponent(id)}/resolve-stream?${p}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'X-Locale': locale, Accept: 'application/json' },
@@ -350,8 +356,9 @@ export const api = {
   },
   whosTopicDetail: (id: string, locale: Locale, page = 1, opts?: FetchOpts) =>
     getJson<{
-      item: WhosTopic
+      item: WhosTopic | null
       frames: WhosFrame[]
+      videos: VideoSummary[]
       page: number
       maxPage?: number | null
       hasMore?: boolean

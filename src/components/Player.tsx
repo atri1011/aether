@@ -23,6 +23,9 @@ export type SubtitleOption = {
 
 type Props = {
   src: string | null
+  startTime?: number
+  onRetry: (position: number) => void
+  retrying?: boolean
   poster?: string
   theatre: boolean
   onToggleTheatre: () => void
@@ -32,6 +35,8 @@ type Props = {
     exitTheatre: string
     play: string
     pause: string
+    retry: string
+    playbackError: string
     fullscreen: string
     exitFullscreen: string
     quality: string
@@ -199,6 +204,9 @@ async function exitFs() {
 
 export function Player({
   src,
+  startTime = 0,
+  onRetry,
+  retrying = false,
   poster,
   theatre,
   onToggleTheatre,
@@ -685,12 +693,19 @@ export function Player({
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
+        startPosition: startTime > 0 ? startTime : -1,
+        maxBufferLength: 20,
+        maxMaxBufferLength: 60,
+        backBufferLength: 30,
+        capLevelToPlayerSize: true,
         // same-origin /api/hls — send session cookie when site gate is on
         xhrSetup: (xhr) => {
           xhr.withCredentials = true
         },
       })
       hlsRef.current = hls
+      let networkRecoveries = 0
+      let mediaRecoveries = 0
       hls.loadSource(playSrc)
       hls.attachMedia(video)
 
@@ -719,15 +734,17 @@ export function Player({
 
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (!data.fatal) return
-        // one automatic recovery path for transient network blips
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+        // hls.js has already retried the request. Bound recovery so a broken
+        // manifest cannot trap the player in an endless loading loop.
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR &&
+            data.details !== Hls.ErrorDetails.MANIFEST_LOAD_ERROR && networkRecoveries++ < 1) {
           try {
             hls.startLoad()
             return
           } catch {
             // fall through to surface error
           }
-        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRecoveries++ < 1) {
           try {
             hls.recoverMediaError()
             return
@@ -735,11 +752,27 @@ export function Player({
             // fall through
           }
         }
-        setError(data.type + (data.details ? `: ${data.details}` : ''))
+        hls.stopLoad()
+        setError(labels.playbackError)
       })
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       // Safari native HLS — no level API; browser ABR only
       video.src = playSrc
+      const seekToStart = () => {
+        if (startTime > 0 && Number.isFinite(video.duration)) {
+          video.currentTime = Math.min(startTime, Math.max(0, video.duration - 1))
+        }
+      }
+      video.addEventListener('loadedmetadata', seekToStart, { once: true })
+      const onError = () => setError(labels.playbackError)
+      video.addEventListener('error', onError)
+      return () => {
+        video.removeEventListener('loadedmetadata', seekToStart)
+        video.removeEventListener('error', onError)
+        video.pause()
+        video.removeAttribute('src')
+        video.load()
+      }
     } else {
       setError('HLS not supported in this browser')
     }
@@ -749,8 +782,11 @@ export function Player({
         hlsRef.current.destroy()
         hlsRef.current = null
       }
+      video.pause()
+      video.removeAttribute('src')
+      video.load()
     }
-  }, [src, applyLevel])
+  }, [src, startTime, applyLevel, labels.playbackError])
 
   const activeLabel = useMemo(() => {
     if (selectedLevel === -1) {
@@ -1072,7 +1108,14 @@ export function Player({
             </span>
           </label>
         )}
-        {error && <span className="player-error">{error}</span>}
+        {error && (
+          <>
+            <span className="player-error" role="alert">{error}</span>
+            <button type="button" className="btn" disabled={retrying} aria-busy={retrying} onClick={() => onRetry(videoRef.current?.currentTime || startTime)}>
+              {labels.retry}
+            </button>
+          </>
+        )}
         {!src && <span className="player-muted">No stream</span>}
       </div>
     </div>

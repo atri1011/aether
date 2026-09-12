@@ -4,6 +4,8 @@
  */
 import { Router } from 'express'
 import { config } from '../config.js'
+import { cacheGet, cacheSet } from '../cache.js'
+import { mapWhosVideo } from '../map.js'
 import { pyScrapeWhos } from '../pybridge.js'
 import { withCache } from '../services/cacheWrap.js'
 import { localeOf, qStr } from '../util/locale.js'
@@ -19,13 +21,6 @@ function mediaCode(id) {
     .replace(/-uncensored-leak$/i, '')
     .replace(/-chinese-subtitle$/i, '')
     .replace(/-english-subtitle$/i, '')
-}
-
-function fourhoiCover(id, size = 't') {
-  const code = mediaCode(id)
-  if (!code) return ''
-  const kind = size === 'n' ? 'cover-n' : 'cover-t'
-  return `https://fourhoi.com/${code}/${kind}.jpg`
 }
 
 function mapFrame(it) {
@@ -48,6 +43,18 @@ function mapFrame(it) {
   }
 }
 
+// Lists already contain the frame's video/time. Reuse them for detail navigation
+// instead of fetching a verification page and caching an empty watch target.
+async function rememberFrames(items, locale) {
+  const frames = items.map(mapFrame)
+  await Promise.all(frames.filter((item) => item.id && item.watchId).map(async (item) => {
+    const key = `whos:frame:v2:${locale}:${item.id}`
+    if (await cacheGet(key)) return
+    await cacheSet(key, { item, related: [], source: 'whos' }, config.ttl.video)
+  }))
+  return frames
+}
+
 function mapTopic(it) {
   return {
     id: String(it?.id || ''),
@@ -62,27 +69,8 @@ function mapTopic(it) {
 }
 
 function mapRankingVideo(it) {
-  const id = String(it?.id || it?.code || '').toLowerCase()
-  const code = mediaCode(id)
   return {
-    id,
-    code: code.toUpperCase(),
-    title: it?.title || code.toUpperCase(),
-    coverUrl: fourhoiCover(id, 't'),
-    durationSec: 0,
-    releasedAt: null,
-    actresses: Array.isArray(it?.actresses) ? it.actresses : [],
-    genres: [],
-    tags: [],
-    labels: [],
-    type: /uncensored/i.test(id)
-      ? 'uncensored-leak'
-      : /chinese-subtitle/i.test(id)
-        ? 'chinese-subtitle'
-        : 'unknown',
-    hasChineseSubtitle: /chinese-subtitle/i.test(id),
-    hasEnglishSubtitle: /english-subtitle/i.test(id),
-    isUncensoredLeak: /uncensored/i.test(id),
+    ...mapWhosVideo(it),
     rank: it?.rank ?? null,
     rating: it?.rating ?? null,
     hotFrames: Array.isArray(it?.hotFrames)
@@ -129,7 +117,7 @@ router.get('/api/whos/frames', async (req, res) => {
   const type = qStr(req.query.type) || ''
   const labelId = qStr(req.query.labelId) || qStr(req.query.label) || ''
   const page = Math.max(1, Number(req.query.page) || 1)
-  const key = `whos:frames:v1:${locale}:${type || '-'}:${labelId || '-'}:${page}`
+  const key = `whos:frames:v2:${locale}:${type || '-'}:${labelId || '-'}:${page}`
   try {
     const { data, cache } = await withCache(key, TTL, async () => {
       const scraped = await pyScrapeWhos('frames', {
@@ -151,7 +139,7 @@ router.get('/api/whos/frames', async (req, res) => {
         page: scraped.page || page,
         maxPage: scraped.maxPage ?? null,
         hasMore: Boolean(scraped.hasMore),
-        items: (scraped.items || []).map(mapFrame),
+        items: await rememberFrames(scraped.items || [], locale),
         source: scraped.source || 'whos',
       }
     })
@@ -166,7 +154,7 @@ router.get('/api/whos/frames/:id', async (req, res) => {
   const locale = localeOf(req)
   const id = String(req.params.id || '').replace(/\D/g, '')
   if (!id) return sendError(res, 400, 'CONFIG', 'id required')
-  const key = `whos:frame:v1:${locale}:${id}`
+  const key = `whos:frame:v2:${locale}:${id}`
   try {
     const { data, cache } = await withCache(key, config.ttl.video, async () => {
       const scraped = await pyScrapeWhos('frame', { locale, id })
@@ -224,7 +212,7 @@ router.get('/api/whos/topics/:id', async (req, res) => {
   const id = String(req.params.id || '').replace(/\D/g, '')
   const page = Math.max(1, Number(req.query.page) || 1)
   if (!id) return sendError(res, 400, 'CONFIG', 'id required')
-  const key = `whos:topic:v1:${locale}:${id}:${page}`
+  const key = `whos:topic:v2:${locale}:${id}:${page}`
   try {
     const { data, cache } = await withCache(key, TTL, async () => {
       const scraped = await pyScrapeWhos('topic', { locale, id, page })
@@ -234,8 +222,9 @@ router.get('/api/whos/topics/:id', async (req, res) => {
         throw err
       }
       return {
-        item: mapTopic(scraped.item || {}),
-        frames: (scraped.frames || []).map(mapFrame),
+        item: scraped.item ? mapTopic(scraped.item) : null,
+        frames: await rememberFrames(scraped.frames || [], locale),
+        videos: (scraped.videos || []).map(mapWhosVideo),
         page: scraped.page || page,
         maxPage: scraped.maxPage ?? null,
         hasMore: Boolean(scraped.hasMore),
@@ -254,8 +243,7 @@ router.get('/api/whos/ranking', async (req, res) => {
   let kind = (qStr(req.query.kind) || 'video').toLowerCase()
   if (kind === 'actresses') kind = 'actress'
   if (kind !== 'actress') kind = 'video'
-  // v3: actress name fix + videoCount; video rows still include hotFrames
-  const key = `whos:ranking:v3:${locale}:${kind}`
+  const key = `whos:ranking:v4:${locale}:${kind}`
   try {
     const { data, cache } = await withCache(key, TTL, async () => {
       const scraped = await pyScrapeWhos('ranking', { locale, kind })

@@ -98,6 +98,26 @@ export function mapDetail(item, locale = 'zh', extras = {}) {
   }
 }
 
+/** Whos cards and details keep their own playback source and poster. */
+export function mapWhosVideo(item) {
+  const id = String(item?.id || item?.code || '').toLowerCase()
+  const summary = mapSummary({
+    id,
+    values: {
+      title: item?.title || id.toUpperCase(),
+      duration: item?.durationSec,
+      actresses: item?.actresses,
+      labels: item?.labels,
+    },
+  })
+  return {
+    ...summary,
+    source: 'whos',
+    coverUrl: item?.coverUrl || summary.coverUrl,
+    releasedAt: item?.releasedAt || null,
+  }
+}
+
 export function mapRecomms(data, locale = 'zh') {
   const recomms = data?.recomms || []
   return {

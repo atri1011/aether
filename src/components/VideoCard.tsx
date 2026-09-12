@@ -36,7 +36,7 @@ export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: n
   // Mount <video> only after first intent so grids stay light.
   const [wantsPreview, setWantsPreview] = useState(false)
 
-  const detailPath = `/v/${encodeURIComponent(video.id)}`
+  const detailPath = `/v/${encodeURIComponent(video.id)}${video.source === 'whos' ? '?source=whos' : ''}`
   const previewSrc = previewUrlFor(video.id)
 
   // MissAV-style corner tags: prefer API flags, fall back to id suffixes.
@@ -145,7 +145,7 @@ export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: n
       e.preventDefault()
       e.stopPropagation()
 
-      if (previewing) {
+      if (video.source === 'whos' || previewing) {
         goDetail()
         return
       }
@@ -155,7 +155,7 @@ export function VideoCard({ video, index = 0 }: { video: VideoSummary; index?: n
       }
       void startPreview()
     },
-    [goDetail, previewFailed, previewing, startPreview],
+    [goDetail, previewFailed, previewing, startPreview, video.source],
   )
 
   return (

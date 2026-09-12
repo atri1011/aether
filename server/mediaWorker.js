@@ -72,7 +72,7 @@ export async function mediaWorkerHealthy() {
   return ping()
 }
 
-export async function mediaFetch(url, { timeoutMs = 45000 } = {}) {
+export async function mediaFetch(url, { timeoutMs = 45000, signal, range } = {}) {
   const ok = await ensureMediaWorker()
   if (!ok) throw new Error('media worker unavailable')
 
@@ -80,7 +80,10 @@ export async function mediaFetch(url, { timeoutMs = 45000 } = {}) {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const res = await fetch(endpoint, { signal: ctrl.signal })
+    const res = await fetch(endpoint, {
+      signal: signal ? AbortSignal.any([signal, ctrl.signal]) : ctrl.signal,
+      headers: range ? { Range: range } : undefined,
+    })
     const buf = Buffer.from(await res.arrayBuffer())
     const contentType = res.headers.get('content-type') || 'application/octet-stream'
     if (!res.ok) {
@@ -89,7 +92,12 @@ export async function mediaFetch(url, { timeoutMs = 45000 } = {}) {
       err.body = buf.toString('utf8').slice(0, 200)
       throw err
     }
-    return { status: res.status, contentType, buffer: buf }
+    return {
+      status: res.status, contentType, buffer: buf,
+      contentRange: res.headers.get('content-range'),
+      acceptRanges: res.headers.get('accept-ranges'),
+      url: res.headers.get('x-upstream-url') || url,
+    }
   } finally {
     clearTimeout(timer)
   }
@@ -99,7 +107,7 @@ export async function mediaFetch(url, { timeoutMs = 45000 } = {}) {
  * Streaming fetch for media segments (OPT-03).
  * Returns Node Readable + headers; caller must pipeline to response.
  */
-export async function mediaFetchStream(url, { timeoutMs = 45000 } = {}) {
+export async function mediaFetchStream(url, { timeoutMs = 45000, signal, range } = {}) {
   const ok = await ensureMediaWorker()
   if (!ok) throw new Error('media worker unavailable')
 
@@ -107,7 +115,10 @@ export async function mediaFetchStream(url, { timeoutMs = 45000 } = {}) {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const res = await fetch(endpoint, { signal: ctrl.signal })
+    const res = await fetch(endpoint, {
+      signal: signal ? AbortSignal.any([signal, ctrl.signal]) : ctrl.signal,
+      headers: range ? { Range: range } : undefined,
+    })
     const contentType = res.headers.get('content-type') || 'application/octet-stream'
     if (!res.ok) {
       const text = await res.text().catch(() => '')
@@ -124,13 +135,14 @@ export async function mediaFetchStream(url, { timeoutMs = 45000 } = {}) {
     // Keep timer until stream ends
     const clear = () => clearTimeout(timer)
     nodeStream.on('end', clear)
-    nodeStream.on('close', clear)
+    nodeStream.on('close', () => { clear(); ctrl.abort() })
     nodeStream.on('error', clear)
     return {
       status: res.status,
       contentType,
       contentLength: res.headers.get('content-length'),
       acceptRanges: res.headers.get('accept-ranges'),
+      contentRange: res.headers.get('content-range'),
       stream: nodeStream,
     }
   } catch (e) {

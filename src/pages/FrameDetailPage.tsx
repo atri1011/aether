@@ -114,7 +114,7 @@ export function FrameDetailPage() {
           ) : null}
           <div className="frame-detail-actions">
             {watchId ? (
-              <Link className="btn btn-primary" to={`/v/${encodeURIComponent(watchId)}`}>
+              <Link className="btn btn-primary" to={`/v/${encodeURIComponent(watchId)}?source=whos${item.seekSec != null && item.seekSec > 0 ? `&t=${item.seekSec}` : ''}`}>
                 {tr('playOnAether')}
               </Link>
             ) : null}

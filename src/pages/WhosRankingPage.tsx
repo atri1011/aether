@@ -51,7 +51,7 @@ function RankingVideoEntry({
   video: WhosRankingVideo
   index: number
 }) {
-  const to = `/v/${encodeURIComponent(video.id)}`
+  const to = `/v/${encodeURIComponent(video.id)}?source=whos`
   const code = video.code || video.id
   const title = video.title || code
   const actress = video.actresses?.[0]

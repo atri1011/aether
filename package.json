@@ -10,7 +10,8 @@
     "build": "tsc -b && vite build",
     "start": "node server/index.js",
     "lint": "oxlint",
-    "test": "node --test server/services/scrapeMap.test.js server/services/actressWorks.test.js server/services/searchSuggestions.test.js server/services/subtitles.test.js server/videoFilters.test.js server/auth.test.js server/hlsProxy.test.js server/cache.test.js server/categories.test.js server/util/cacheKeys.test.js server/pybridge.test.js",
+    "test": "node --test server/services/scrapeMap.test.js server/services/actressWorks.test.js server/services/searchSuggestions.test.js server/services/subtitles.test.js server/videoFilters.test.js server/auth.test.js server/hlsProxy.test.js server/cache.test.js server/categories.test.js server/util/cacheKeys.test.js server/pybridge.test.js server/playback.test.js",
+    "test:python": "python -m unittest discover -s server/py -p \"*_test.py\" && python server/py/resolve_stream_test.py",
     "preview": "vite preview"
   },
   "dependencies": {

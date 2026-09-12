@@ -14,9 +14,9 @@ import { metrics } from './services/metrics.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const oneShotScript = path.join(__dirname, 'py', 'fetch_media.py')
 
-function oneShotFetch(url, { timeoutMs = 45000 } = {}) {
+function oneShotFetch(url, { timeoutMs = 45000, signal, range } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn('python', [oneShotScript, url], { windowsHide: true })
+    const child = spawn('python', [oneShotScript, url, ...(range ? [range] : [])], { windowsHide: true, signal })
     const chunks = []
     let stderr = ''
     const timer = setTimeout(() => {
@@ -37,6 +37,8 @@ function oneShotFetch(url, { timeoutMs = 45000 } = {}) {
       const buf = Buffer.concat(chunks)
       const statusLine = stderr.split('\n').find((l) => l.startsWith('STATUS '))
       const ctypeLine = stderr.split('\n').find((l) => l.startsWith('CTYPE '))
+      const rangeLine = stderr.split('\n').find((l) => l.startsWith('RANGE '))
+      const urlLine = stderr.split('\n').find((l) => l.startsWith('FINALURL '))
       const status = statusLine ? Number(statusLine.slice(7)) : code === 0 ? 200 : 502
       const contentType = ctypeLine ? ctypeLine.slice(6).trim() : ''
       if (code !== 0) {
@@ -46,20 +48,22 @@ function oneShotFetch(url, { timeoutMs = 45000 } = {}) {
         reject(err)
         return
       }
-      resolve({ status, contentType, buffer: buf })
+      resolve({ status, contentType, buffer: buf, contentRange: rangeLine?.slice(6).trim(), url: urlLine?.slice(9).trim() || url })
     })
   })
 }
 
-async function fetchUpstream(url) {
+async function fetchUpstream(url, opts) {
   try {
-    return await mediaFetch(url)
-  } catch {
-    return oneShotFetch(url)
+    return await mediaFetch(url, opts)
+  } catch (e) {
+    if (opts?.signal?.aborted || e.status) throw e
+    return oneShotFetch(url, opts)
   }
 }
 
 const ALLOW_HOSTS = new Set([
+  'v.hersav.me',
   'surrit.com',
   'fourhoi.com',
   'missav.ws',
@@ -76,6 +80,7 @@ export function isAllowedMediaUrl(raw) {
   try {
     const u = new URL(raw)
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return false
+    if (u.username || u.password) return false
     return hostAllowed(u.hostname)
   } catch {
     return false
@@ -141,12 +146,8 @@ export async function handleHlsProxy(req, res) {
     res.status(400).json({ error: 'url required', code: 'CONFIG' })
     return
   }
-  let target
-  try {
-    target = decodeURIComponent(raw)
-  } catch {
-    target = raw
-  }
+  // Express already decoded the query. Decoding twice corrupts signed URLs.
+  const target = raw
   if (target.startsWith('/api/hls')) {
     res.status(400).json({ error: 'nested proxy not allowed', code: 'CONFIG' })
     return
@@ -161,11 +162,16 @@ export async function handleHlsProxy(req, res) {
     !target.includes('.m3u8') &&
     !/playlist/i.test(target)
 
+  const ctrl = new AbortController()
+  const abort = () => ctrl.abort()
+  res.on('close', abort)
+  const opts = { signal: ctrl.signal, range: req.headers.range }
+
   try {
     // Streaming path for .ts / binary segments
     if (wantStream) {
       try {
-        const up = await mediaFetchStream(target)
+        const up = await mediaFetchStream(target, opts)
         if (!looksLikePlaylist(target, up.contentType, '')) {
           res.status(up.status || 200)
           res.setHeader('Content-Type', up.contentType || 'application/octet-stream')
@@ -173,6 +179,7 @@ export async function handleHlsProxy(req, res) {
           res.setHeader('Access-Control-Allow-Origin', '*')
           if (up.contentLength) res.setHeader('Content-Length', up.contentLength)
           if (up.acceptRanges) res.setHeader('Accept-Ranges', up.acceptRanges)
+          if (up.contentRange) res.setHeader('Content-Range', up.contentRange)
           let bytes = 0
           up.stream.on('data', (c) => {
             bytes += c.length || 0
@@ -183,23 +190,25 @@ export async function handleHlsProxy(req, res) {
         }
         // Rare: stream endpoint returned playlist — fall through to buffer path
         up.stream.destroy()
-      } catch {
+      } catch (e) {
+        if (res.headersSent || res.destroyed || ctrl.signal.aborted) return
+        if (e.status) throw e
         // fall back to buffered fetch
       }
     }
 
-    const { contentType, buffer } = await fetchUpstream(target)
+    const { status, contentType, buffer, contentRange, acceptRanges, url } = await fetchUpstream(target, opts)
     const textHead = buffer.slice(0, 64).toString('utf8')
     const isPlaylist = looksLikePlaylist(target, contentType, textHead)
 
     if (isPlaylist) {
       const text = buffer.toString('utf8')
-      if (text.trimStart().startsWith('<!DOCTYPE') || text.trimStart().startsWith('<html')) {
+      if (!text.trimStart().startsWith('#EXTM3U')) {
         metrics.inc('hls_errors')
-        res.status(502).json({ error: 'upstream returned html', code: 'UPSTREAM' })
+        res.status(502).json({ error: 'invalid upstream playlist', code: 'UPSTREAM' })
         return
       }
-      const rewritten = rewriteM3u8(text, target, req)
+      const rewritten = rewriteM3u8(text, isAllowedMediaUrl(url) ? url : target, req)
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl')
       res.setHeader('Cache-Control', 'public, max-age=20')
       res.setHeader('Access-Control-Allow-Origin', '*')
@@ -208,18 +217,24 @@ export async function handleHlsProxy(req, res) {
       return
     }
 
+    res.status(status || 200)
     res.setHeader('Content-Type', contentType || 'application/octet-stream')
+    if (contentRange) res.setHeader('Content-Range', contentRange)
+    if (acceptRanges) res.setHeader('Accept-Ranges', acceptRanges)
     res.setHeader('Cache-Control', 'public, max-age=120')
     res.setHeader('Access-Control-Allow-Origin', '*')
     metrics.add('hls_bytes', buffer.length)
     res.send(buffer)
   } catch (e) {
+    if (res.headersSent || res.destroyed || ctrl.signal.aborted) return
     metrics.inc('hls_errors')
     res.status(e.status || 502).json({
       error: e.message,
       code: 'UPSTREAM',
       details: process.env.NODE_ENV === 'production' ? undefined : e.body,
     })
+  } finally {
+    res.off('close', abort)
   }
 }
 

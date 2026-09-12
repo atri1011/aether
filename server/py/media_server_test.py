@@ -27,6 +27,26 @@ class MediaServerTest(unittest.TestCase):
         self.assertNotIn("curl_options", kwargs)
         self.assertTrue(kwargs["stream"])
 
+    def test_whos_requests_forward_range_and_use_source_origin(self):
+        original = media_server.SESSION
+        fake = Mock()
+        media_server.SESSION = fake
+        try:
+            media_server._fetch_upstream("https://v.hersav.me/test/segment.ts", stream=True, range_header="bytes=0-1023")
+        finally:
+            media_server.SESSION = original
+        headers = fake.get.call_args.kwargs["headers"]
+        self.assertEqual(headers["Referer"], "https://whos.tv/")
+        self.assertEqual(headers["Origin"], "https://whos.tv")
+        self.assertEqual(headers["Range"], "bytes=0-1023")
+        self.assertEqual(media_server.HEADERS["Origin"], "https://missav.ws")
+
+    def test_media_allowlist_rejects_credentials_and_lookalike_hosts(self):
+        self.assertTrue(media_server.allowed("https://v.hersav.me/test/main.m3u8"))
+        for url in ("https://v.hersav.me.example.com/a", "https://user:pass@v.hersav.me/a", "ftp://v.hersav.me/a"):
+            with self.subTest(url=url):
+                self.assertFalse(media_server.allowed(url))
+
 
 if __name__ == "__main__":
     unittest.main()

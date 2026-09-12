@@ -179,6 +179,8 @@ def handle_whos(body: dict) -> dict:
             page=int(body.get("page") or 1),
             locale=locale,
         )
+    if mode == "video":
+        return scrape_whos.scrape_video_detail(str(body.get("id") or ""), locale)
     if mode == "ranking":
         return scrape_whos.scrape_ranking(
             str(body.get("kind") or "video"),
