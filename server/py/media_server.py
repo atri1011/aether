@@ -35,13 +35,24 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 }
 
+# Keep in sync with ALLOW_HOSTS in ../../hlsProxy.js.
 ALLOW_SUFFIXES = (
     "v.hersav.me",
     "surrit.com",
     "fourhoi.com",
     "missav.ws",
     "missav.ai",
+    # huangguo (黄果) theater + its CDN, its HLS host, and the AI-site segment
+    # CDN (segments rotate across tp1..tp8.tuafjz.cn, so allow the root).
+    "huangguo.video",
+    "cdn.huangguo.video",
+    "yd-hls.bnfuiu.cn",
+    "tuafjz.cn",
 )
+
+# HLS/segment requests to the theater host 403 without these.
+HUANGGUO_ORIGIN = "https://huangguo.video"
+HUANGGUO_HOSTS = ("huangguo.video", "cdn.huangguo.video")
 
 
 def allowed(url: str) -> bool:
@@ -58,8 +69,20 @@ def allowed(url: str) -> bool:
 
 def _fetch_upstream(url: str, *, stream: bool = False, range_header: str | None = None):
     headers = dict(HEADERS)
-    if urlparse(url).hostname == "v.hersav.me":
+    host = (urlparse(url).hostname or "").lower()
+    if host == "v.hersav.me":
         headers.update({"Referer": "https://whos.tv/", "Origin": "https://whos.tv"})
+    elif host in HUANGGUO_HOSTS:
+        # Missing Origin / Sec-Fetch-* returns 403 even with a valid Referer.
+        headers.update(
+            {
+                "Referer": HUANGGUO_ORIGIN + "/",
+                "Origin": HUANGGUO_ORIGIN,
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin",
+            }
+        )
     if range_header:
         headers["Range"] = range_header
     return SESSION.get(

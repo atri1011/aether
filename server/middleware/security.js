@@ -66,6 +66,10 @@ export function createApiRateLimiters() {
   const actressHeavyRe =
     /^\/api\/actresses(\/|$)/i
   const lightPaths = new Set(['/api/actresses/filters', '/api/search/suggestions'])
+  // huangguo (黄果) source paths reuse the existing tiers; covers are their own
+  // bucket because a single grid view requests 24-40 of them.
+  const huangguoScrapeRe = /^\/api\/huangguo\/(ai|video)(\/|$)/i
+  const huangguoCoverRe = /^\/api\/huangguo\/cover$/i
 
   return function apiRateLimit(req, res, next) {
     if (!req.path?.startsWith('/api')) return next()
@@ -73,10 +77,13 @@ export function createApiRateLimiters() {
     if (req.path === '/api/hls' || req.path.startsWith('/api/hls')) {
       return hls(req, res, next)
     }
+    if (huangguoCoverRe.test(req.path)) {
+      return hls(req, res, next)
+    }
     if (lightPaths.has(req.path)) {
       return general(req, res, next)
     }
-    if (heavyRe.test(req.path) || actressHeavyRe.test(req.path)) {
+    if (heavyRe.test(req.path) || actressHeavyRe.test(req.path) || huangguoScrapeRe.test(req.path)) {
       return scrapeHeavy(req, res, next)
     }
     return general(req, res, next)

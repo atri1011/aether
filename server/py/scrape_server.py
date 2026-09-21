@@ -7,6 +7,7 @@ POST /scrape/list
 POST /scrape/actresses
 POST /scrape/catalog
 POST /scrape/whos
+POST /scrape/huangguo
 POST /resolve
 POST /subtitles/search   { code, durationSec? }
 POST /subtitles/fetch    { url }
@@ -49,15 +50,30 @@ def _import_scrapers():
     import scrape_actresses
     import scrape_catalog
     import scrape_whos
+    import scrape_huangguo
     import resolve_stream
     import subtitles
 
-    return scrape_list, scrape_actresses, scrape_catalog, scrape_whos, resolve_stream, subtitles
+    return (
+        scrape_list,
+        scrape_actresses,
+        scrape_catalog,
+        scrape_whos,
+        scrape_huangguo,
+        resolve_stream,
+        subtitles,
+    )
 
 
-scrape_list, scrape_actresses, scrape_catalog, scrape_whos, resolve_stream, subtitles = (
-    _import_scrapers()
-)
+(
+    scrape_list,
+    scrape_actresses,
+    scrape_catalog,
+    scrape_whos,
+    scrape_huangguo,
+    resolve_stream,
+    subtitles,
+) = _import_scrapers()
 
 
 def handle_list(body: dict) -> dict:
@@ -189,6 +205,41 @@ def handle_whos(body: dict) -> dict:
     return {"ok": False, "error": f"unknown whos mode: {mode}"}
 
 
+def handle_huangguo(body: dict) -> dict:
+    """huangguoai.com (AI 短剧) and huangguo.video (黄果剧场)."""
+    mode = (body.get("mode") or "ai-list").lower()
+    locale = body.get("locale") or "zh"
+    if mode == "ai-list":
+        slug = str(body.get("category") or body.get("slug") or "")
+        sort = body.get("sort") or "hot"
+        page = int(body.get("page") or 1)
+        if sort in {"-", ""}:
+            sort = "hot"
+        return scrape_huangguo.scrape_ai_list(slug, sort, page, locale)
+    if mode == "ai-detail":
+        return scrape_huangguo.scrape_ai_detail(str(body.get("id") or ""), locale)
+    if mode in {"ai-tags", "tags"}:
+        return scrape_huangguo.scrape_ai_tags(locale)
+    if mode == "ai-tag":
+        return scrape_huangguo.scrape_ai_tag(
+            str(body.get("slug") or ""), int(body.get("page") or 1), locale
+        )
+    if mode == "ai-ep":
+        return scrape_huangguo.scrape_ai_episode(
+            str(body.get("id") or ""), int(body.get("ep") or 1), locale
+        )
+    if mode == "video-list":
+        category = str(body.get("category") or "all")
+        if category in {"-", ""}:
+            category = "all"
+        return scrape_huangguo.scrape_video_list(category, int(body.get("page") or 1), locale)
+    if mode == "video-detail":
+        return scrape_huangguo.scrape_video_detail(str(body.get("id") or ""), locale)
+    if mode == "video-stream":
+        return scrape_huangguo.scrape_video_stream(str(body.get("code") or ""), locale)
+    return {"ok": False, "error": f"unknown huangguo mode: {mode}"}
+
+
 def handle_resolve(body: dict) -> dict:
     video_id = str(body.get("id") or body.get("videoId") or "").strip()
     if not video_id:
@@ -223,6 +274,7 @@ ROUTES = {
     "/scrape/actresses": handle_actresses,
     "/scrape/catalog": handle_catalog,
     "/scrape/whos": handle_whos,
+    "/scrape/huangguo": handle_huangguo,
     "/resolve": handle_resolve,
     "/subtitles/search": handle_subtitles_search,
     "/subtitles/fetch": handle_subtitles_fetch,

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api, formatDate, formatDuration, isAbortError } from '../lib/api'
-import type { SubtitleTrack, VideoDetail, VideoSummary } from '../types'
+import type { SubtitleTrack, VideoDetail, VideoSource, VideoSummary } from '../types'
 import { useLocale } from '../context'
 import { Player, type SubtitleOption } from '../components/Player'
 import { VideoGrid } from '../components/VideoGrid'
@@ -99,8 +99,13 @@ function toSubtitleOptions(items: SubtitleTrack[]): SubtitleOption[] {
 
 export function WatchPage() {
   const { id = '' } = useParams()
-  const [sp] = useSearchParams()
-  const source = sp.get('source') === 'whos' ? 'whos' : undefined
+  const [sp, setSp] = useSearchParams()
+  const sourceParam = sp.get('source') || ''
+  // 黄果 drama sources paginate their own episodes via ?ep=
+  const isDrama = sourceParam.startsWith('huangguo')
+  const source: VideoSource | undefined =
+    sourceParam === 'whos' || isDrama ? (sourceParam as VideoSource) : undefined
+  const ep = Math.max(1, Number(sp.get('ep')) || 1)
   const seek = Number(sp.get('t'))
   const startTime = Number.isFinite(seek) && seek > 0 ? seek : 0
   const { locale, tr } = useLocale()
@@ -116,20 +121,27 @@ export function WatchPage() {
   const [playerAttempt, setPlayerAttempt] = useState(0)
   const [resumeTime, setResumeTime] = useState<number | null>(null)
   const retryRef = useRef<AbortController | null>(null)
+  // Switching episodes keeps the page (and the episode strip) on screen —
+  // only a different video clears it back to the skeleton.
+  const loadedKeyRef = useRef('')
 
   // Meta first (OPT-07); abort on id/locale change (OPT-08)
   useEffect(() => {
     const ac = new AbortController()
-    setVideo(null)
-    setLoading(true)
-    setError(null)
-    setOverrideSrc(null)
-    setStreamResolving(false)
-    setSubtitleTracks(null)
-    setRelated([])
+    const videoKey = `${id}:${source || 'missav'}`
+    if (loadedKeyRef.current !== videoKey) {
+      loadedKeyRef.current = videoKey
+      setVideo(null)
+      setLoading(true)
+      setError(null)
+      setOverrideSrc(null)
+      setStreamResolving(false)
+      setSubtitleTracks(null)
+      setRelated([])
+    }
     setResumeTime(null)
     api
-      .video(id, locale, { signal: ac.signal, source })
+      .video(id, locale, { signal: ac.signal, source, ep })
       .then((d) => {
         if (ac.signal.aborted) return
         setVideo(d)
@@ -144,7 +156,7 @@ export function WatchPage() {
       ac.abort()
       retryRef.current?.abort()
     }
-  }, [id, locale, source])
+  }, [id, locale, source, ep])
 
   // Auto resolve stream when meta arrived without masterUrl
   useEffect(() => {
@@ -158,7 +170,7 @@ export function WatchPage() {
     const ac = new AbortController()
     setStreamResolving(true)
     api
-      .resolveStream(id, locale, { signal: ac.signal, source })
+      .resolveStream(id, locale, { signal: ac.signal, source, ep })
       .then((d) => {
         if (!ac.signal.aborted) {
           setVideo(d)
@@ -181,7 +193,7 @@ export function WatchPage() {
     return () => {
       ac.abort()
     }
-  }, [video, loading, id, locale, source])
+  }, [video, loading, id, locale, source, ep])
 
   const src = useMemo(() => {
     if (overrideSrc) return overrideSrc
@@ -189,7 +201,8 @@ export function WatchPage() {
   }, [overrideSrc, video])
 
   // Recommendations and subtitle discovery never delay stream readiness.
-  const relatedId = !loading && src ? video?.id : undefined
+  // Related comes from Recombee (MissAV), so drama sources opt out entirely.
+  const relatedId = !loading && src && !isDrama ? video?.id : undefined
   useEffect(() => {
     if (!relatedId) return
     const ac = new AbortController()
@@ -226,7 +239,7 @@ export function WatchPage() {
     const ac = new AbortController()
     retryRef.current = ac
     setStreamResolving(true)
-    api.resolveStream(id, locale, { signal: ac.signal, source, refresh: true })
+    api.resolveStream(id, locale, { signal: ac.signal, source, ep, refresh: true })
       .then((d) => {
         if (ac.signal.aborted) return
         setError(null)
@@ -241,6 +254,14 @@ export function WatchPage() {
         setVideo((prev) => prev ? { ...prev, stream: null, streamStatus: 'error', streamError: { message: e.message } } : prev)
       })
       .finally(() => { if (!ac.signal.aborted) setStreamResolving(false) })
+  }
+
+  /** Episode strip navigation: the URL stays the single source of truth. */
+  function goEpisode(next: number) {
+    const params = new URLSearchParams(sp)
+    if (next <= 1) params.delete('ep')
+    else params.set('ep', String(next))
+    setSp(params)
   }
 
   if (loading) return <WatchSkeleton />
@@ -259,7 +280,7 @@ export function WatchPage() {
       <div className={`detail${theatre ? ' theatre-layout' : ''}`}>
         <div>
           <Player
-            key={`${id}:${source || 'missav'}:${playerAttempt}`}
+            key={`${id}:${source || 'missav'}:${ep}:${playerAttempt}`}
             src={src}
             startTime={resumeTime ?? startTime}
             onRetry={retryStream}
@@ -291,6 +312,30 @@ export function WatchPage() {
               subtitleMachine: tr('subtitleMachine'),
             }}
           />
+          {video.episodes && video.episodes.length > 1 && (
+            <div className="episode-strip">
+              <div className="episode-strip-head">
+                <span>{tr('dramaEpisodes')}</span>
+                <span className="episode-strip-count">
+                  {ep} / {video.episodes.length}
+                </span>
+              </div>
+              <div className="episode-strip-list">
+                {video.episodes.map((item) => (
+                  <button
+                    key={item.ep}
+                    type="button"
+                    className={`episode-chip${item.ep === ep ? ' is-active' : ''}`}
+                    disabled={item.ep === ep}
+                    onClick={() => goEpisode(item.ep)}
+                    title={item.title || String(item.ep)}
+                  >
+                    {item.ep}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {!src && (
             <p className="card-sub stream-status">
               {streamResolving ? tr('loading') : tr('streamMissing')}
@@ -343,7 +388,7 @@ export function WatchPage() {
         </div>
 
         <aside className="detail-side">
-          <div className="kicker">{video.code}</div>
+          <div className="kicker">{video.code || (isDrama ? tr('dramaKicker') : '')}</div>
           <h1>{video.title || video.code}</h1>
           <dl>
             <div>
@@ -357,13 +402,17 @@ export function WatchPage() {
             <div>
               <dt>{tr('actresses')}</dt>
               <dd>
-                <DetailMetaLinks
-                  items={video.actresses}
-                  to={actressPath}
-                  sep=" / "
-                  seedActress
-                  locale={locale}
-                />
+                {isDrama ? (
+                  video.actresses?.join(' / ') || '—'
+                ) : (
+                  <DetailMetaLinks
+                    items={video.actresses}
+                    to={actressPath}
+                    sep=" / "
+                    seedActress
+                    locale={locale}
+                  />
+                )}
               </dd>
             </div>
             <div>

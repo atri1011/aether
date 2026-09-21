@@ -310,6 +310,41 @@ export function pyScrapeWhos(mode, opts = {}) {
   )
 }
 
+/** huangguo (黄果) AI 短剧 + 剧场 — see scrape_huangguo.py */
+export function pyScrapeHuangguo(mode, opts = {}) {
+  const m = String(mode || 'ai-list').toLowerCase()
+  const loc = String(opts.locale || 'zh').toLowerCase().startsWith('en') ? 'en' : 'zh'
+  const dash = (v) => (v == null || v === '' ? '-' : String(v))
+  const page = String(Math.max(1, Number(opts.page) || 1))
+  const body = { mode: m, locale: loc, ...opts }
+  body.locale = loc
+  let args
+  if (m === 'ai-list') {
+    args = ['ai-list', String(opts.category || opts.slug || ''), dash(opts.sort), page, loc]
+  } else if (m === 'ai-detail') {
+    args = ['ai-detail', String(opts.id || '')]
+  } else if (m === 'ai-tags') {
+    args = ['ai-tags', loc]
+  } else if (m === 'ai-tag') {
+    args = ['ai-tag', String(opts.slug || ''), page]
+  } else if (m === 'ai-ep') {
+    args = ['ai-ep', String(opts.id || ''), String(Math.max(1, Number(opts.ep) || 1))]
+  } else if (m === 'video-list') {
+    args = ['video-list', dash(opts.category), page]
+  } else if (m === 'video-detail') {
+    args = ['video-detail', String(opts.id || '')]
+  } else if (m === 'video-stream') {
+    args = ['video-stream', String(opts.code || '')]
+  } else {
+    args = [m]
+  }
+  return withWorker(
+    '/scrape/huangguo',
+    body,
+    () => runPython('scrape_huangguo.py', args, { timeoutMs: 55000 }),
+  )
+}
+
 /** External Chinese-subtitle lookup — see subtitles.py (SUB-01). */
 export function pySubtitleSearch(code, durationSec = 0) {
   const c = String(code || '').trim()

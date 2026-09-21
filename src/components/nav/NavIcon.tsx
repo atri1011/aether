@@ -86,6 +86,14 @@ export function NavIcon({ name }: { name?: NavIconName }) {
           <path d="M9 9h7M9 12.5h5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
         </svg>
       )
+    case 'drama':
+      return (
+        <svg {...common}>
+          <rect x="3.5" y="5" width="17" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.7" />
+          <path d="M7.5 5v14M16.5 5v14" stroke="currentColor" strokeWidth="1.4" opacity="0.55" />
+          <path d="M11 9.6v4.8l4.2-2.4z" fill="currentColor" />
+        </svg>
+      )
     case 'genres':
       return (
         <svg {...common}>

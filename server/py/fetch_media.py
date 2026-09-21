@@ -19,13 +19,28 @@ def main():
         sys.stderr.write("usage: fetch_media.py <url>\n")
         sys.exit(1)
     url = sys.argv[1]
-    origin = "https://whos.tv" if urlparse(url).hostname == "v.hersav.me" else "https://missav.ws"
+    host = (urlparse(url).hostname or "").lower()
+    if host == "v.hersav.me":
+        origin = "https://whos.tv"
+    elif host in ("huangguo.video", "cdn.huangguo.video"):
+        origin = "https://huangguo.video"
+    else:
+        origin = "https://missav.ws"
     headers = {
         "Referer": origin + "/",
         "Origin": origin,
         "Accept": "*/*",
         "Accept-Language": "en-US,en;q=0.9",
     }
+    if host in ("huangguo.video", "cdn.huangguo.video"):
+        # Mirror media_server: the theater host 403s without the Sec-Fetch trio.
+        headers.update(
+            {
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin",
+            }
+        )
     if len(sys.argv) > 2:
         headers["Range"] = sys.argv[2]
     r = requests.get(

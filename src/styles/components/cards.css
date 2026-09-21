@@ -628,3 +628,172 @@
   margin: 0 auto;
 }
 
+
+/* ── 黄果短剧: portrait drama cards (3:4) ───────────────── */
+
+.drama-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 1.15rem 0.85rem;
+}
+
+.drama-card {
+  display: block;
+  position: relative;
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius);
+  animation: aether-rise 0.5s var(--ease-out-quint) both;
+  animation-delay: calc(min(var(--i, 0), 10) * var(--stagger));
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  /* OPT-09: skip layout/paint for off-screen cards in long grids */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 260px;
+}
+
+.drama-cover {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  background: linear-gradient(160deg, #e4e3de, #d7d6d0);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  transition:
+    border-color var(--dur-3) ease,
+    box-shadow var(--dur-3) var(--ease-out-quint),
+    transform var(--dur-3) var(--ease-out-quint);
+}
+
+.drama-card:hover .drama-cover,
+.drama-card:focus-visible .drama-cover {
+  border-color: rgba(127, 139, 131, 0.34);
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-2px);
+}
+
+.drama-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(0.88) contrast(1.02);
+  transition:
+    transform 0.7s var(--ease-out-quint),
+    filter var(--dur-3) ease;
+}
+
+.drama-card:hover .drama-cover img,
+.drama-card:focus-visible .drama-cover img {
+  transform: scale(1.03);
+  filter: brightness(1.05) saturate(1.04);
+}
+
+/* score (top-left) + episode label (bottom-right) */
+.drama-score,
+.drama-ep {
+  position: absolute;
+  z-index: 1;
+  padding: 0.14rem 0.42rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-rest);
+}
+
+.drama-score {
+  top: 0.45rem;
+  left: 0.45rem;
+  color: #fff;
+  background: linear-gradient(165deg, var(--accent), var(--accent-deep));
+}
+
+.drama-ep {
+  right: 0.45rem;
+  bottom: 0.45rem;
+  max-width: calc(100% - 0.9rem);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--accent-deep);
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
+  -webkit-backdrop-filter: blur(var(--blur-sm)) saturate(var(--saturate));
+}
+
+.drama-meta {
+  padding: 0.5rem 0.15rem 0;
+}
+
+.drama-title {
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.drama-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+  margin-top: 0.3rem;
+}
+
+.drama-tag {
+  padding: 0.05rem 0.4rem;
+  font-size: 0.66rem;
+  line-height: 1.45;
+  color: var(--ink-faint);
+  background: var(--bg-interactive);
+  border-radius: var(--radius-pill);
+}
+
+.drama-card.is-skeleton {
+  pointer-events: none;
+}
+
+.drama-card.is-skeleton .drama-cover {
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.drama-skeleton-line,
+.drama-card.is-skeleton .drama-cover {
+  background: linear-gradient(
+    100deg,
+    rgba(74, 80, 76, 0.04) 20%,
+    rgba(74, 80, 76, 0.1) 40%,
+    rgba(74, 80, 76, 0.04) 60%
+  );
+  background-size: 200% 100%;
+  animation: aether-shimmer 1.4s linear infinite;
+}
+
+.drama-skeleton-line {
+  display: block;
+  width: 78%;
+  height: 0.72rem;
+  border-radius: 6px;
+}
+
+@media (max-width: 640px) {
+  .drama-grid {
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+    gap: 0.8rem 0.6rem;
+  }
+
+  .drama-card {
+    contain-intrinsic-size: auto 200px;
+  }
+
+  .drama-title {
+    font-size: 0.8rem;
+  }
+}

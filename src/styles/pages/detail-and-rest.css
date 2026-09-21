@@ -2943,6 +2943,133 @@ video::cue {
   }
 }
 
+
+/* ── 黄果短剧: tag index + episode strip ───────────────── */
+
+.drama-tag-group {
+  margin-bottom: 1.7rem;
+}
+
+.drama-tag-heading {
+  margin: 0 0 0.7rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+.drama-tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.drama-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--ink-dim);
+  text-decoration: none;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.72);
+  transition:
+    border-color var(--dur-2) ease,
+    color var(--dur-2) ease,
+    background var(--dur-2) ease,
+    transform var(--dur-2) var(--ease-out-expo);
+}
+
+.drama-tag-chip:hover {
+  border-color: rgba(127, 139, 131, 0.36);
+  color: var(--ink);
+  transform: translateY(-1px);
+}
+
+/* Episode strip — 黄果 series playback */
+.episode-strip {
+  margin: 0.9rem 0 1.25rem;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+}
+
+.episode-strip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+  font-size: 0.82rem;
+  color: var(--ink-dim);
+}
+
+.episode-strip-count {
+  font-size: 0.76rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.episode-strip-list {
+  display: flex;
+  gap: 0.4rem;
+  padding-bottom: 0.2rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.episode-strip-list::-webkit-scrollbar {
+  display: none;
+}
+
+.episode-chip {
+  flex: 0 0 auto;
+  min-width: 2.35rem;
+  min-height: 2.35rem;
+  padding: 0 0.5rem;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition:
+    border-color var(--dur-2) ease,
+    color var(--dur-2) ease,
+    background var(--dur-2) ease,
+    transform var(--dur-2) var(--ease-out-expo);
+}
+
+.episode-chip:hover:not(:disabled) {
+  border-color: rgba(127, 139, 131, 0.36);
+  color: var(--ink);
+  transform: translateY(-1px);
+}
+
+.episode-chip.is-active {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(165deg, var(--accent), var(--accent-deep));
+  box-shadow: 0 4px 14px rgba(106, 117, 110, 0.24);
+}
+
+@media (max-width: 640px) {
+  .episode-strip {
+    padding: 0.7rem 0.8rem;
+  }
+
+  .episode-chip {
+    min-width: var(--touch-min);
+    min-height: var(--touch-min);
+  }
+}
+
 /* ── Access gate (password wall) ───────────────────────── */
 
 .gate {
@@ -3350,11 +3477,16 @@ video::cue {
   .card-preview,
   .card-preview-badge,
   .gate-submit,
-  .gate-field {
+  .gate-field,
+  .drama-cover,
+  .drama-tag-chip,
+  .episode-chip {
     transition-duration: 0.01ms !important;
   }
 
-  .skeleton {
+  .skeleton,
+  .drama-skeleton-line,
+  .drama-card.is-skeleton .drama-cover {
     animation: none !important;
     background: var(--bg-interactive);
   }

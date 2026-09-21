@@ -15,6 +15,8 @@ import { FrameDetailPage } from './pages/FrameDetailPage'
 import { TopicsPage } from './pages/TopicsPage'
 import { TopicDetailPage } from './pages/TopicDetailPage'
 import { WhosRankingPage } from './pages/WhosRankingPage'
+import { DramaAiRoute, DramaTagRoute, DramaVideoRoute } from './pages/DramaListPage'
+import { DramaTagsPage } from './pages/DramaTagsPage'
 
 export default function App() {
   return (
@@ -42,6 +44,12 @@ export default function App() {
               <Route path="topics" element={<TopicsPage />} />
               <Route path="topics/:id" element={<TopicDetailPage />} />
               <Route path="ranking" element={<WhosRankingPage />} />
+              {/* 黄果短剧: AI 站分类 / 标签索引 / 剧场分类 */}
+              <Route path="drama" element={<Navigate to="/drama/ai/ai-duanju" replace />} />
+              <Route path="drama/ai/:slug" element={<DramaAiRoute />} />
+              <Route path="drama/tags" element={<DramaTagsPage />} />
+              <Route path="drama/tag/:slug" element={<DramaTagRoute />} />
+              <Route path="drama/video/:category" element={<DramaVideoRoute />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

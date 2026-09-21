@@ -68,6 +68,12 @@ const ALLOW_HOSTS = new Set([
   'fourhoi.com',
   'missav.ws',
   'missav.ai',
+  // huangguo (黄果): theater origin + its CDN, HLS host, AI-site segment CDN.
+  // Segments land on tp{1..8}.tuafjz.cn, so allow the root, not one shard.
+  'huangguo.video',
+  'cdn.huangguo.video',
+  'yd-hls.bnfuiu.cn',
+  'tuafjz.cn',
 ])
 
 function hostAllowed(hostname) {

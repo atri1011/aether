@@ -32,10 +32,10 @@ Node Express (server/index.js :8787)
   ├─ requireAuth（除 health / auth）
   ├─ 磁盘缓存 + singleflight + SWR
   ├─ Recombee 签名请求
-  ├─ pybridge → server/py/*.py（列表 / 女优 / 目录 / 解析流 / 外部字幕）
+  ├─ pybridge → server/py/*.py（列表 / 女优 / 目录 / 解析流 / 外部字幕 / 黄果短剧）
   ├─ mediaWorker → media_server.py :18790（HLS 上游拉取）
   └─ hlsProxy → GET /api/hls?url=
-       仅 allowlist: surrit / fourhoi / missav.*
+       仅 allowlist: surrit / fourhoi / missav.* / v.hersav.me / 黄果与 whos 各域名（见 7.6、7.10）
 ```
 
 ---
@@ -120,13 +120,14 @@ aether/
 │   ├── videoFilters.js / stream.js / pybridge.js / hlsProxy.js
 │   ├── mediaWorker.js      # media_server :18790（含 /fetch_stream）
 │   ├── scrapeWorker.js     # scrape_server :18791
-│   ├── routes/             # home / catalog / video / actresses / whos / subtitles / health
-│   ├── services/           # cacheWrap / scrapeMap / videoBundle / warm / metrics / subtitles
+│   ├── routes/             # home / catalog / video / actresses / whos / huangguo / subtitles / health
+│   ├── services/           # cacheWrap / scrapeMap / videoBundle / warm / metrics / subtitles / huangguo
 │   ├── middleware/         # security / rateLimit
 │   ├── util/               # locale / sendError
 │   └── py/
 │       ├── scrape_list.py / scrape_actresses.py / scrape_catalog.py
 │       ├── scrape_whos.py  # whos.tv 帧探索 / 专题 / 排行榜
+│       ├── scrape_huangguo.py  # 黄果 AI 短剧 + 剧场（列表 / 详情 / 分集地址 / 标签）
 │       ├── resolve_stream.py / scrape_server.py
 │       ├── subtitles.py    # 外部中文字幕搜索（Xunlei + SubtitleCat）/ 抓取
 │       ├── media_server.py / fetch_media.py
@@ -213,7 +214,7 @@ curl -s http://127.0.0.1:8787/api/health
 - 专题详情的视频与帧共用手动页码；后续页可能只有列表片段，直接打开后续页时另取第一页补充专题资料，不合并第一页内容
 - 观看页：先拉 meta，无 `stream.masterUrl` 时自动 `resolve-stream`（OPT-07）
 - 外部字幕：`hasChineseSubtitle === false` 时自动 `subtitleSearch`；候选经
-  `/api/subtitle?url=` 按需转 VTT（见 7.9）
+  `/api/subtitle?url=` 按需转 VTT（见 7.7）
 
 ### 6.2.1 搜索联想
 
@@ -351,6 +352,26 @@ Xunlei oracle（人工上传 SRT，主源）与 SubtitleCat（机器翻译 HTML 
 4. 前端 `api.ts` + `types.ts` 同步
 5. 分类导航：`categories.js` + `navConfig.ts` 双写
 6. 抓取逻辑只放 Python + `curl_cffi`，**不要**用裸 Node `fetch` 打 MissAV HTML（易 403）
+7. 新增第三方源：同步 `hlsProxy.js` 的 `ALLOW_HOSTS` 与 `media_server.py` 的 `ALLOW_SUFFIXES`（见 7.10）
+8. 二进制代理（封面 / 图片）不进 `cache.js`（只存 JSON），另建缓存目录 + mtime TTL + 数量上限
+
+### 7.10 黄果短剧双源（`routes/huangguo.js` + `services/huangguo*.js` + `py/scrape_huangguo.py`）
+
+两个互不相关的第三方站，作为独立专区接入：不参与站内搜索、首页 rail、女优体系，`related` 对它们返回空数组。
+
+| 站点 | source | 上游形状 | 播放 |
+|------|--------|----------|------|
+| huangguoai.com（AI 短剧） | `huangguo-ai` | 纯 JSON：`/api/videos/category/{slug}?sort={hot\|new}&page=&size=`、`/api/videos/{id}`、`/api/tags`；标签列表是服务端渲染 HTML | 逐集页 `/video/{id}/ep-{n}/` 内嵌 `<script id="videoInitialData">` 的 `videoSrc` |
+| huangguo.video（剧场） | `huangguo-video` | HTML：`/videos?category={all\|1..4}&page=`、`/series/{code}`、`/video/{code}` | 详情页 `data-hls` 的 master m3u8；连续剧逐集抓 `/video/{code}` |
+
+- 路由：`/api/huangguo/ai/list|detail|tags|tag`、`/api/huangguo/video/list|detail`、`/api/huangguo/cover`
+- 列表响应是 `PagedResult` 形状 + `hasMore` / `category` / `title`；非法 `category` 400 `CONFIG`，上游失败 503 `UPSTREAM`（不缓存半成品）
+- 缓存 key（均 v1，规则见 7.3）：`hguo:ai:list:v1:{locale}:{slug}:{sort}:{page}`、`hguo:ai:tag:v1:{slug}:{page}`、`hguo:ai:tags:v1:{locale}`、`hguo:ai:detail:v1:{id}`、`hguo:vlist:v1:{category}:{page}`、`hguo:vdetail:v1:{id}`、`hguo:ep:v1:{id}:{ep}`
+- 播放复用 `/api/video/:id?source=huangguo-ai|huangguo-video&ep=N`（key `video:v5:*`、`video-resolve:v2:*`）。上游忽略 `?ep=`，分集地址只能逐集抓，因此按集缓存
+- 封面：`pic.tuafjz.cn` 返回整段 AES-128-CBC 密文（key `f5d965df75336270` / iv `97b60394abc2fbe1`，解密后按最后一个 `FFD9` 截断），浏览器无法直连，只能走 `/api/huangguo/cover?u=`。该路由有独立 host 白名单（`pic.tuafjz.cn`、`*.zdmhyg.cn`、`*.huangguo.video`），落盘 7 天、上限 2000 个，超过按最旧淘汰
+- 防盗链：`huangguo.video` 与 `cdn.huangguo.video` 的 master / variant / key / 分片缺少 `Origin: https://huangguo.video` 与 `Sec-Fetch-Dest|Mode|Site` 一律 403；`media_server.py` 的 `_fetch_upstream` 已补齐，`fetch_media.py` 一次性兜底同步同一套头
+- **域名白名单两份，改一处必须同步另一处**：`server/hlsProxy.js` 的 `ALLOW_HOSTS`（Node 侧）与 `server/py/media_server.py` 的 `ALLOW_SUFFIXES`（worker 侧）。AI 站分片在 `tp1..tp8.tuafjz.cn` 之间轮换，所以放行的是根域 `tuafjz.cn`，不是某个分片
+- 前端：侧栏「AI 短剧」分组 → `/drama/ai/:slug`、`/drama/tags`、`/drama/tag/:slug`、`/drama/video/:category`；卡片直接跳 `/v/{id}?source=…`，观看页出现分集条后切集只改 URL 的 `ep` 参数
 
 ---
 
@@ -389,6 +410,14 @@ GET  /api/whos/frames/:id
 GET  /api/whos/topics?category=&page=
 GET  /api/whos/topics/:id?page=
 GET  /api/whos/ranking?kind=video|actress
+
+GET  /api/huangguo/ai/list?category=&page=&sort=
+GET  /api/huangguo/ai/detail?id=
+GET  /api/huangguo/ai/tags
+GET  /api/huangguo/ai/tag?slug=&page=
+GET  /api/huangguo/video/list?category=&page=
+GET  /api/huangguo/video/detail?id=
+GET  /api/huangguo/cover?u=
 ```
 
 错误体：
@@ -519,6 +548,7 @@ GET  /api/whos/ranking?kind=video|actress
 - [ ] 若改鉴权：开/关门禁两种模式都试  
 - [ ] 未把密钥写进前端或提交 `.env`  
 - [ ] 抓取相关：本机 `curl_cffi` 可用  
+- [ ] 若新增第三方源：`hlsProxy.js` 与 `media_server.py` 的域名白名单已同步  
 
 ---
 

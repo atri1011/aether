@@ -9,6 +9,7 @@ import { pyScrapeWhos } from '../pybridge.js'
 import { resolveStream } from '../stream.js'
 import { toProxiedStream } from '../hlsProxy.js'
 import { withCache } from './cacheWrap.js'
+import { isHuangguoSource, loadHuangguoVideo } from './huangguo.js'
 
 async function loadWhosVideo(id, locale) {
   const scraped = await pyScrapeWhos('video', { id, locale })
@@ -33,12 +34,15 @@ async function loadWhosVideo(id, locale) {
 /**
  * @param {string} id
  * @param {string} locale
- * @param {{ forceStream?: boolean, includeStream?: boolean, source?: string }} [opts]
+ * @param {{ forceStream?: boolean, includeStream?: boolean, source?: string, ep?: number }} [opts]
  *   includeStream=false → meta only (+ cached stream if present)
  *   forceStream=true → always re-resolve stream
+ *   source=huangguo-* → standalone drama source, ep selects the episode
  */
-export async function loadVideoBundle(id, locale, { forceStream = false, includeStream = true, source = 'missav' } = {}) {
+export async function loadVideoBundle(id, locale, { forceStream = false, includeStream = true, source = 'missav', ep = 1 } = {}) {
   if (source === 'whos') return loadWhosVideo(id, locale)
+  // Huangguo sources resolve per-episode playlists; there is no lazy meta step.
+  if (isHuangguoSource(source)) return loadHuangguoVideo(id, locale, { source, ep, forceStream })
   const metaKey = `video-meta:v2:${locale}:${id}`
   const streamKey = `video-stream:${id}`
 

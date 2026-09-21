@@ -1,6 +1,9 @@
+/** Third-party playback sources; MissAV is the default and carries no explicit source. */
+export type VideoSource = 'whos' | 'huangguo-ai' | 'huangguo-video'
+
 export interface VideoSummary {
   id: string
-  source?: 'whos'
+  source?: VideoSource
   code: string
   title: string
   titleJa?: string
@@ -15,6 +18,34 @@ export interface VideoSummary {
   hasChineseSubtitle: boolean
   hasEnglishSubtitle: boolean
   isUncensoredLeak: boolean
+  /** Drama sources only: episode total + the upstream card label (更新至N集) */
+  episodeCount?: number
+  episodeLabel?: string
+  /** Drama sources only: upstream score (10-point) and 完结 flag */
+  score?: number
+  isFinished?: boolean
+}
+
+/** One playable episode of a drama source. */
+export interface DramaEpisode {
+  ep: number
+  title: string
+  durationSec: number
+  playable: boolean
+}
+
+/** 黄果 AI 短剧 tag (category + hot flag come from the tag index). */
+export interface DramaTag {
+  slug: string
+  name: string
+  categoryName: string
+  hotScore: number
+  isHot: boolean
+}
+
+export interface DramaTagCategory {
+  name: string
+  tags: DramaTag[]
 }
 
 export interface StreamInfo {
@@ -30,6 +61,8 @@ export interface VideoDetail extends VideoSummary {
   markers: string[]
   stream: StreamInfo | null
   related?: VideoSummary[]
+  /** Drama sources: full episode list, drives the watch-page episode strip */
+  episodes?: DramaEpisode[]
   streamError?: { message: string; details?: string }
   /** OPT-07: pending|miss|cached|resolved|error */
   streamStatus?: 'pending' | 'miss' | 'cached' | 'resolved' | 'error'

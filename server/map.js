@@ -118,6 +118,73 @@ export function mapWhosVideo(item) {
   }
 }
 
+/** Huangguo (黄果) covers are AES blobs upstream — the browser reads them
+ *  through the same-origin decrypting proxy, never from the CDN host. */
+export function huangguoCoverUrl(raw) {
+  const url = String(raw || '').trim()
+  if (!/^https?:\/\//i.test(url)) return ''
+  return `/api/huangguo/cover?u=${encodeURIComponent(url)}`
+}
+
+/** Episode strip entry for the Huangguo sources. */
+export function mapDramaEpisode(ep) {
+  return {
+    ep: Number(ep?.ep) || 0,
+    title: String(ep?.title || ''),
+    durationSec: Number(ep?.durationSec) || 0,
+    playable: ep?.playable !== false,
+  }
+}
+
+/** Card + detail summary shared by both Huangguo sources. */
+export function mapHuangguoSummary(item, source) {
+  const id = String(item?.id || '')
+  const isVideo = source === 'huangguo-video'
+  const tags = Array.isArray(item?.tags) ? item.tags.filter(Boolean).map(String) : []
+  const actors = Array.isArray(item?.actors) ? item.actors.filter(Boolean).map(String) : []
+  const episodeCount = Number(item?.episodeCount) || 0
+  const isFinished = Boolean(item?.isFinished)
+  // Category JSON has no label; tag-page cards do ("更新至3集").
+  const episodeLabel =
+    String(item?.episodeLabel || '') ||
+    (episodeCount ? (isFinished ? `全${episodeCount}集` : `更新至${episodeCount}集`) : '')
+  return {
+    id,
+    source,
+    code: isVideo ? id.replace(/^[sv]:/, '').toUpperCase() : '',
+    title: String(item?.title || ''),
+    coverUrl: huangguoCoverUrl(item?.cover),
+    durationSec: Number(item?.durationSec) || 0,
+    releasedAt: null,
+    actresses: actors,
+    genres: tags,
+    tags,
+    labels: [],
+    type: isVideo ? 'drama-video' : 'drama-ai',
+    hasChineseSubtitle: false,
+    hasEnglishSubtitle: false,
+    isUncensoredLeak: false,
+    episodeCount,
+    episodeLabel,
+    isFinished,
+    ...(item?.score == null ? {} : { score: Number(item.score) }),
+  }
+}
+
+/** Drama detail: summary + the full episode list (drives the watch-page strip). */
+export function mapHuangguoDrama(item, source, episodes) {
+  return {
+    ...mapHuangguoSummary(item, source),
+    directors: [],
+    actors: [],
+    series: [],
+    markers: [],
+    stream: null,
+    related: [],
+    episodes: (episodes || item?.episodes || []).map(mapDramaEpisode),
+  }
+}
+
 export function mapRecomms(data, locale = 'zh') {
   const recomms = data?.recomms || []
   return {

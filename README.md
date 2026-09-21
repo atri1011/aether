@@ -102,5 +102,6 @@ AUTH_SECURE_COOKIE=1                    # set Secure cookie flag (use behind HTT
 - Playback: `/api/hls` → long-running Python media worker (`MEDIA_PORT=18790`) with curl_cffi session reuse; one-shot fallback if worker down.
 - Watch page still accepts manual UUID/m3u8 (auto-proxied).
 - External Chinese subtitles (SUB-01): when a video has no bundled Chinese subs, the watch page probes Xunlei oracle + SubtitleCat via `GET /api/video/:id/subtitles`; selecting a candidate loads converted WebVTT through same-origin `GET /api/subtitle?url=` (host allowlist enforced in Node and Python).
+- 黄果短剧 (huangguoai.com AI 站 + huangguo.video 剧场) is its own sidebar section: AI listings are JSON, theater listings are HTML, covers are decrypted through `/api/huangguo/cover?u=`, and playback reuses `GET /api/video/:id?source=huangguo-ai|huangguo-video&ep=N`.
 - Cache is last-success on disk; cold start needs network.
 - VPS needs: Node 20+, Python 3.10+, `pip install curl_cffi`.

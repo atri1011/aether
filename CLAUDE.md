@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**AETHER** — magazine-editorial React SPA + Node proxy for MissAV-class metadata (Recombee + HTML scrape) and surrit HLS playback. The browser never calls MissAV/Recombee hosts for catalog APIs; only covers (`fourhoi.com`) and (via proxy) stream media leave the app origin.
+**AETHER** — magazine-editorial React SPA + Node proxy for MissAV-class metadata (Recombee + HTML scrape) and surrit HLS playback. The browser never calls MissAV/Recombee hosts for catalog APIs; only covers (`fourhoi.com`) and (via proxy) stream media leave the app origin. Third-party sources — whos.tv and the two 黄果 drama sites — are self-contained sections with their own playback and same-origin cover proxies.
 
 Sibling product docs (parent of this repo): `../docs/api-contract.md`, `../docs/DECISIONS.md`, `../docs/adr/`.
 
@@ -69,7 +69,7 @@ Node Express (server/index.js → app.js :8787)
   ├─ pybridge → scrapeWorker RPC (scrape_server.py :18791) → spawn fallback
   ├─ mediaWorker → media_server.py :18790 (/fetch + /fetch_stream)
   └─ HLS proxy (hlsProxy.js) playlist rewrite + segment stream
-       only allowlisted hosts: surrit / fourhoi / missav.*
+       only allowlisted hosts: surrit / fourhoi / missav.* / v.hersav.me / whos + huangguo hosts
 ```
 
 ### Frontend (`src/`)
@@ -90,7 +90,7 @@ Node Express (server/index.js → app.js :8787)
 |--------|------|
 | `index.js` | listen, warm workers, warm categories, shutdown |
 | `app.js` | express + middleware + mount `routes/*` + static SPA |
-| `routes/*` | home, catalog, video, actresses, whos, subtitles, health/admin stats |
+| `routes/*` | home, catalog, video, actresses, whos, huangguo, subtitles, health/admin stats |
 | `services/*` | cacheWrap, scrapeMap (+ enrich cache), videoBundle, warm, metrics, homeRails, subtitles |
 | `middleware/*` | security headers, CORS, tiered rate limit |
 | `config.js` | Port, cache L1/GC, Recombee, Miss bases, auth, feature flags |
@@ -102,7 +102,7 @@ Node Express (server/index.js → app.js :8787)
 
 **Python scripts (`server/py/`):**
 
-- `scrape_list.py` / `scrape_actresses.py` / `scrape_catalog.py` / `scrape_whos.py` / `resolve_stream.py` / `subtitles.py` — CLI + importable by worker
+- `scrape_list.py` / `scrape_actresses.py` / `scrape_catalog.py` / `scrape_whos.py` / `scrape_huangguo.py` / `resolve_stream.py` / `subtitles.py` — CLI + importable by worker
 - `scrape_server.py` — long-lived scrape RPC `:18791`
 - `media_server.py` — long-lived `/fetch` + `/fetch_stream` `:18790`
 - `fetch_media.py` — one-shot media fallback
@@ -133,6 +133,9 @@ GET  /api/video/:id/subtitles?durationSec=   # external zh subs when hasChineseS
 GET  /api/subtitle?url=                       # same-origin WebVTT (host allowlist)
 GET  /api/actresses  /filters  /ranking  /search  /:slug
 GET  /api/whos/frames[/categories|/:id]  /topics[/:id]  /ranking
+GET  /api/huangguo/ai/list|detail|tags|tag      # 黄果 AI 站 (JSON + tag HTML)
+GET  /api/huangguo/video/list|detail            # 黄果剧场 (HTML)
+GET  /api/huangguo/cover?u=                     # same-origin AES cover proxy
 ```
 
 Errors: `{ error, code, details? }` (`UPSTREAM`, `NOT_FOUND`, …). Cache mode often on `X-Aether-Cache`.

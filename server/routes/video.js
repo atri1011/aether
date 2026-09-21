@@ -10,8 +10,17 @@ import { sendError } from '../util/sendError.js'
 
 const router = Router()
 
-const sourceOf = (req) => req.query.source === 'whos' ? 'whos' : 'missav'
-const videoKey = (source, locale, id, stream) => `video:v4:${source}:${locale}:${id}:${stream ? 's' : 'm'}`
+// Standalone sources: each keeps its own cache namespace and episode index.
+const HUANGGUO_SOURCES = new Set(['huangguo-ai', 'huangguo-video'])
+const sourceOf = (req) => {
+  const raw = String(req.query.source || '')
+  if (raw === 'whos' || HUANGGUO_SOURCES.has(raw)) return raw
+  return 'missav'
+}
+const epOf = (req) => Math.max(1, Number(req.query.ep) || 1)
+const epKey = (source, ep) => (HUANGGUO_SOURCES.has(source) ? String(ep) : '-')
+const videoKey = (source, locale, id, stream, ep = 1) =>
+  `video:v5:${source}:${locale}:${id}:${epKey(source, ep)}:${stream ? 's' : 'm'}`
 const cacheableVideo = (data) => data.streamStatus !== 'error'
 
 router.get('/api/video/:id', async (req, res) => {
@@ -25,14 +34,16 @@ router.get('/api/video/:id', async (req, res) => {
     String(req.query.stream || '').toLowerCase() === 'true' ||
     !config.videoLazyStream
 
-  const key = videoKey(source, locale, id, wantStream)
-  const ttl = source === 'whos' || wantStream ? config.ttl.stream : config.ttl.video
+  const ep = epOf(req)
+  const key = videoKey(source, locale, id, wantStream, ep)
+  const ttl = source !== 'missav' || wantStream ? config.ttl.stream : config.ttl.video
   try {
     const { data, cache } = await withCache(key, ttl, () =>
       loadVideoBundle(id, locale, {
         includeStream: wantStream,
         forceStream: false,
         source,
+        ep,
       }),
       { allowStale: false, shouldCache: cacheableVideo },
     )
@@ -49,23 +60,24 @@ router.post('/api/video/:id/resolve-stream', async (req, res) => {
   const id = String(req.params.id || '').trim()
   const source = sourceOf(req)
   const refresh = req.query.refresh === '1'
+  const ep = epOf(req)
   try {
-    const { data } = await withCache(`video-resolve:v1:${source}:${locale}:${id}:${refresh}`, config.ttl.stream,
+    const { data } = await withCache(`video-resolve:v2:${source}:${locale}:${id}:${ep}:${refresh}`, config.ttl.stream,
       async () => {
         if (refresh) {
           await Promise.all([
-            cacheDelete(videoKey(source, locale, id, true)),
-            cacheDelete(videoKey(source, locale, id, false)),
+            cacheDelete(videoKey(source, locale, id, true, ep)),
+            cacheDelete(videoKey(source, locale, id, false, ep)),
             ...(source === 'missav' ? [cacheDelete(`video-stream:${id}`)] : []),
           ])
         }
-        return loadVideoBundle(id, locale, { forceStream: refresh, includeStream: true, source })
+        return loadVideoBundle(id, locale, { forceStream: refresh, includeStream: true, source, ep })
       },
       { shouldCache: () => false, allowStale: false })
     if (cacheableVideo(data)) {
       await Promise.all([
-        cacheSet(videoKey(source, locale, id, true), data, config.ttl.stream),
-        cacheSet(videoKey(source, locale, id, false), data, config.ttl.stream),
+        cacheSet(videoKey(source, locale, id, true, ep), data, config.ttl.stream),
+        cacheSet(videoKey(source, locale, id, false, ep), data, config.ttl.stream),
       ])
     }
     res.json(withProxiedStream(data, req))

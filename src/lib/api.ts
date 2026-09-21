@@ -4,6 +4,8 @@ import type {
   ActressProfile,
   ActressSummary,
   CategoryItem,
+  DramaTag,
+  DramaTagCategory,
   HomeMorePayload,
   HomePayload,
   Locale,
@@ -13,6 +15,7 @@ import type {
   VideoDetail,
   VideoFilterOptions,
   VideoListQuery,
+  VideoSource,
   VideoSummary,
   WhosFrame,
   WhosFrameLabel,
@@ -34,7 +37,10 @@ import {
 import { defaultSortForCategory } from './videoListDefaults'
 
 export type FetchOpts = { signal?: AbortSignal }
-type VideoFetchOpts = FetchOpts & { source?: 'whos'; refresh?: boolean }
+type VideoFetchOpts = FetchOpts & { source?: VideoSource; refresh?: boolean; ep?: number }
+
+/** Drama sources resolve one episode at a time (see routes/video.js). */
+const isDramaSource = (source?: string) => Boolean(source?.startsWith('huangguo'))
 
 function isAbortError(e: unknown) {
   return (
@@ -88,6 +94,16 @@ function withVideoQuery(base: string, locale: Locale, page: number, pageSize: nu
   if (q?.sort) p.set('sort', q.sort)
   const sep = base.includes('?') ? '&' : '?'
   return `${base}${sep}${p.toString()}`
+}
+
+/** Paged drama listing: PagedResult + the pager extras the drama pages read. */
+export type DramaListResponse = PagedResult<VideoSummary> & {
+  hasMore?: boolean
+  maxPage?: number | null
+  title?: string
+  category?: string
+  slug?: string
+  source?: string
 }
 
 export type VideoListResponse = PagedResult<VideoSummary> & {
@@ -270,13 +286,18 @@ export const api = {
       locale,
       opts,
     ),
-  video: (id: string, locale: Locale, opts?: VideoFetchOpts) =>
-    getJson<VideoDetail>(`/api/video/${encodeURIComponent(id)}?locale=${locale}${opts?.source === 'whos' ? '&source=whos' : ''}`, locale, opts),
+  video: (id: string, locale: Locale, opts?: VideoFetchOpts) => {
+    const p = new URLSearchParams({ locale })
+    if (opts?.source) p.set('source', opts.source)
+    if (isDramaSource(opts?.source) && opts?.ep) p.set('ep', String(opts.ep))
+    return getJson<VideoDetail>(`/api/video/${encodeURIComponent(id)}?${p.toString()}`, locale, opts)
+  },
   videoRelated: (id: string, locale: Locale, opts?: FetchOpts) =>
     getJson<{ items: VideoSummary[] }>(`/api/video/${encodeURIComponent(id)}/related?locale=${locale}`, locale, opts),
   resolveStream: async (id: string, locale: Locale, opts?: VideoFetchOpts) => {
     const p = new URLSearchParams()
-    if (opts?.source === 'whos') p.set('source', 'whos')
+    if (opts?.source) p.set('source', opts.source)
+    if (isDramaSource(opts?.source) && opts?.ep) p.set('ep', String(opts.ep))
     if (opts?.refresh) p.set('refresh', '1')
     const res = await fetch(`/api/video/${encodeURIComponent(id)}/resolve-stream?${p}`, {
       method: 'POST',
@@ -371,6 +392,60 @@ export const api = {
       items: WhosRankingVideo[] | WhosRankingActress[]
       source?: string
     }>(`/api/whos/ranking?locale=${locale}&kind=${kind}`, locale, opts),
+
+  // ── 黄果短剧: AI 站 + 剧场 ─────────────────
+  huangguoAiList: (
+    locale: Locale,
+    params: { category?: string; page?: number; sort?: 'hot' | 'new' } = {},
+    opts?: FetchOpts,
+  ) => {
+    const p = new URLSearchParams()
+    p.set('locale', locale)
+    p.set('page', String(params.page || 1))
+    if (params.category) p.set('category', params.category)
+    if (params.sort) p.set('sort', params.sort)
+    return getJson<DramaListResponse>(`/api/huangguo/ai/list?${p.toString()}`, locale, opts)
+  },
+  huangguoAiDetail: (id: string, locale: Locale, opts?: FetchOpts) =>
+    getJson<{ item: VideoDetail; source?: string }>(
+      `/api/huangguo/ai/detail?locale=${locale}&id=${encodeURIComponent(id)}`,
+      locale,
+      opts,
+    ),
+  huangguoAiTags: (locale: Locale, opts?: FetchOpts) =>
+    getJson<{ categories: DramaTagCategory[]; hot: DramaTag[]; source?: string }>(
+      `/api/huangguo/ai/tags?locale=${locale}`,
+      locale,
+      opts,
+    ),
+  huangguoAiTag: (
+    locale: Locale,
+    params: { slug: string; page?: number },
+    opts?: FetchOpts,
+  ) => {
+    const p = new URLSearchParams()
+    p.set('locale', locale)
+    p.set('page', String(params.page || 1))
+    p.set('slug', params.slug)
+    return getJson<DramaListResponse>(`/api/huangguo/ai/tag?${p.toString()}`, locale, opts)
+  },
+  huangguoVideoList: (
+    locale: Locale,
+    params: { category?: string; page?: number } = {},
+    opts?: FetchOpts,
+  ) => {
+    const p = new URLSearchParams()
+    p.set('locale', locale)
+    p.set('page', String(params.page || 1))
+    p.set('category', params.category || 'all')
+    return getJson<DramaListResponse>(`/api/huangguo/video/list?${p.toString()}`, locale, opts)
+  },
+  huangguoVideoDetail: (id: string, locale: Locale, opts?: FetchOpts) =>
+    getJson<{ item: VideoDetail; source?: string }>(
+      `/api/huangguo/video/detail?locale=${locale}&id=${encodeURIComponent(id)}`,
+      locale,
+      opts,
+    ),
 
   actressFilters: (locale: Locale, opts?: FetchOpts) =>
     getJson<{ filters: ActressFilterOptions }>(

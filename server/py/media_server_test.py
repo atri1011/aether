@@ -47,6 +47,46 @@ class MediaServerTest(unittest.TestCase):
             with self.subTest(url=url):
                 self.assertFalse(media_server.allowed(url))
 
+    def test_media_allowlist_accepts_huangguo_hosts(self):
+        for url in (
+            "https://huangguo.video/api/hls_key/2492.abc",
+            "https://cdn.huangguo.video/hls/seg-1.ts",
+            "https://yd-hls.bnfuiu.cn/x/index.m3u8",
+            "https://tp1.tuafjz.cn/x/seg-1.ts",
+        ):
+            with self.subTest(url=url):
+                self.assertTrue(media_server.allowed(url))
+        for url in ("https://huangguo.video.evil.com/a", "https://cdn.huangguo.video.evil.com/a"):
+            with self.subTest(url=url):
+                self.assertFalse(media_server.allowed(url))
+
+    def test_huangguo_requests_carry_origin_and_sec_fetch_headers(self):
+        original = media_server.SESSION
+        fake = Mock()
+        media_server.SESSION = fake
+        try:
+            media_server._fetch_upstream("https://cdn.huangguo.video/hls/seg-1.ts", stream=True)
+        finally:
+            media_server.SESSION = original
+        headers = fake.get.call_args.kwargs["headers"]
+        self.assertEqual(headers["Origin"], "https://huangguo.video")
+        self.assertEqual(headers["Referer"], "https://huangguo.video/")
+        self.assertEqual(headers["Sec-Fetch-Dest"], "empty")
+        self.assertEqual(headers["Sec-Fetch-Mode"], "cors")
+        self.assertEqual(headers["Sec-Fetch-Site"], "same-origin")
+
+    def test_ai_segment_host_keeps_the_default_headers(self):
+        original = media_server.SESSION
+        fake = Mock()
+        media_server.SESSION = fake
+        try:
+            media_server._fetch_upstream("https://tp1.tuafjz.cn/x/seg-1.ts", stream=True)
+        finally:
+            media_server.SESSION = original
+        headers = fake.get.call_args.kwargs["headers"]
+        self.assertEqual(headers["Origin"], "https://missav.ws")
+        self.assertNotIn("Sec-Fetch-Site", headers)
+
 
 if __name__ == "__main__":
     unittest.main()

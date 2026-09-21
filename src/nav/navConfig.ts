@@ -20,6 +20,7 @@ export type NavIconName =
   | 'list'
   | 'frames'
   | 'topics'
+  | 'drama'
 
 export type NavLeaf = {
   id: string
@@ -197,6 +198,85 @@ export const NAV: NavEntry[] = [
         titleEn: 'Ranking',
         to: '/ranking',
         icon: 'ranking',
+      },
+    ],
+  },
+  {
+    type: 'group',
+    id: 'ai-drama',
+    titleZh: 'AI 短剧',
+    titleEn: 'AI Drama',
+    icon: 'drama',
+    children: [
+      {
+        id: 'drama-ai-duanju',
+        titleZh: 'AI成人短剧',
+        titleEn: 'AI adult drama',
+        to: '/drama/ai/ai-duanju',
+        end: true,
+      },
+      {
+        id: 'drama-ai-manju',
+        titleZh: 'AI成人漫剧',
+        titleEn: 'AI adult manhua',
+        to: '/drama/ai/ai-manju',
+        end: true,
+      },
+      {
+        id: 'drama-ai-huanlian',
+        titleZh: 'AI换脸',
+        titleEn: 'AI face swap',
+        to: '/drama/ai/ai-huanlian',
+        end: true,
+      },
+      {
+        id: 'drama-ai-mogai',
+        titleZh: 'AI魔改',
+        titleEn: 'AI remix',
+        to: '/drama/ai/ai-mogai',
+        end: true,
+      },
+      {
+        id: 'drama-tags',
+        titleZh: '热门标签',
+        titleEn: 'Hot tags',
+        to: '/drama/tags',
+        end: true,
+      },
+      {
+        id: 'drama-video-all',
+        titleZh: '黄果视频',
+        titleEn: 'Huangguo videos',
+        to: '/drama/video/all',
+        end: true,
+      },
+      {
+        id: 'drama-video-mv',
+        titleZh: 'MV/音乐剧',
+        titleEn: 'MV / musical',
+        to: '/drama/video/1',
+        end: true,
+      },
+      {
+        id: 'drama-video-short',
+        titleZh: '短片',
+        titleEn: 'Short film',
+        to: '/drama/video/2',
+        end: true,
+      },
+      {
+        id: 'drama-video-series',
+        titleZh: '连续剧',
+        titleEn: 'Series',
+        to: '/drama/video/3',
+        end: true,
+      },
+      {
+        id: 'drama-video-clip',
+        titleZh: '片段',
+        titleEn: 'Clips',
+        to: '/drama/video/4',
+        end: true,
       },
     ],
   },

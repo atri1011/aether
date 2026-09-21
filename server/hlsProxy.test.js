@@ -9,6 +9,18 @@ describe('isAllowedMediaUrl', () => {
     assert.equal(isAllowedMediaUrl('https://fourhoi.com/a/cover.jpg'), true)
     assert.equal(isAllowedMediaUrl('https://missav.ws/dm1/x'), true)
   })
+  it('allows the huangguo theater, its CDN, HLS host and segment CDN', () => {
+    assert.equal(isAllowedMediaUrl('https://huangguo.video/api/hls_key/2492.abc'), true)
+    assert.equal(isAllowedMediaUrl('https://cdn.huangguo.video/hls/seg-1.ts'), true)
+    assert.equal(isAllowedMediaUrl('https://yd-hls.bnfuiu.cn/x/index.m3u8'), true)
+    assert.equal(isAllowedMediaUrl('https://tp4.tuafjz.cn/x/seg-1.ts'), true)
+  })
+  it('blocks lookalike hosts and credentials', () => {
+    assert.equal(isAllowedMediaUrl('https://huangguo.video.evil.com/x.ts'), false)
+    assert.equal(isAllowedMediaUrl('https://cdn.huangguo.video.evil.com/x.ts'), false)
+    assert.equal(isAllowedMediaUrl('https://evil-tuafjz.cn/x.ts'), false)
+    assert.equal(isAllowedMediaUrl('https://user:pass@huangguo.video/x.ts'), false)
+  })
   it('blocks others', () => {
     assert.equal(isAllowedMediaUrl('https://evil.com/x'), false)
     assert.equal(isAllowedMediaUrl('ftp://surrit.com/x'), false)
