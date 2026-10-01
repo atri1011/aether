@@ -68,15 +68,17 @@ export function createApiRateLimiters() {
   const lightPaths = new Set(['/api/actresses/filters', '/api/search/suggestions'])
 
   return function apiRateLimit(req, res, next) {
-    if (!req.path?.startsWith('/api')) return next()
-    if (req.path === '/api/health' || req.path.startsWith('/api/auth')) return next()
-    if (req.path === '/api/hls' || req.path.startsWith('/api/hls')) {
+    // Use the same case-insensitive API boundary as Express routing and auth.
+    const path = (req.path || '').toLowerCase()
+    if (!path.startsWith('/api')) return next()
+    if (path === '/api/health' || path.startsWith('/api/auth')) return next()
+    if (path === '/api/hls' || path.startsWith('/api/hls')) {
       return hls(req, res, next)
     }
-    if (lightPaths.has(req.path)) {
+    if (lightPaths.has(path)) {
       return general(req, res, next)
     }
-    if (heavyRe.test(req.path) || actressHeavyRe.test(req.path)) {
+    if (heavyRe.test(path) || actressHeavyRe.test(path)) {
       return scrapeHeavy(req, res, next)
     }
     return general(req, res, next)

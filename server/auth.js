@@ -205,7 +205,8 @@ export function readSession(req) {
 export function requireAuth(req, res, next) {
   if (!authEnabled()) return next()
 
-  const path = req.path || ''
+  // Match Express's case-insensitive routing without altering resource IDs.
+  const path = (req.path || '').toLowerCase()
   // Shell + static assets load without a session (gate UI lives in SPA).
   // Only API routes are locked — password never ships to the client.
   if (!path.startsWith('/api/')) return next()
