@@ -18,6 +18,7 @@ import json
 import sys
 import threading
 import traceback
+import huangguo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote
 
@@ -219,6 +220,7 @@ def handle_subtitles_fetch(body: dict) -> dict:
 
 
 ROUTES = {
+    "/scrape/dramas": huangguo.scrape,
     "/scrape/list": handle_list,
     "/scrape/actresses": handle_actresses,
     "/scrape/catalog": handle_catalog,

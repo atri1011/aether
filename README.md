@@ -1,6 +1,6 @@
 # AETHER
 
-Magazine-editorial frontend + Node proxy for MissAV-class metadata (Recombee) and surrit HLS playback.
+Magazine-editorial frontend + Node proxy for MissAV-class metadata (Recombee), surrit HLS playback, and a Huangguo-only AI short-drama library.
 
 ## Docs
 
@@ -10,7 +10,7 @@ Magazine-editorial frontend + Node proxy for MissAV-class metadata (Recombee) an
 | **[docs/OPTIMIZATION.md](./docs/OPTIMIZATION.md)** | Backlog of perf/security/structure work — phases, steps, acceptance |
 | [CLAUDE.md](./CLAUDE.md) | Short map for AI assistants |
 | `../docs/api-contract.md` | Upstream + DTO contract (sibling of this repo) |
-| `design-system/aether/` | UI design system |
+| `src/styles/tokens.css`, `design-system/aether-search/` | Current UI tokens and search design notes |
 
 ## Quick start
 
@@ -32,6 +32,16 @@ npm run dev
 | `npm run dev:server` | API only |
 | `npm run build` | production frontend → `dist/` |
 | `npm start` | serve API + `dist/` (local prod-like) |
+| `npm test` | offline Node contracts, pagination and player checks |
+| `npm run test:python` | offline Python parser, media and Huangguo checks |
+
+## AI short dramas
+
+- Open **AI 短剧 / AI Dramas** in the navigation (`/dramas`). Only Huangguo's public `ai-duanju` catalog is included, ordered by popularity, with manual 24-item pagination.
+- `/dramas/:id?episode=ep-N` supports episode selection, previous/next episode, retry, theatre mode and fullscreen. Back to library preserves the originating page.
+- Covers are decoded server-side via `/api/dramas/:id/cover`. HLS and native MP4 both use the existing same-origin `/api/hls` proxy and access gate.
+- No upstream account, legacy API, alternate providers, downloads, or preview/neighbor-episode fallback. Paid or unavailable episodes return an error.
+- Requires the existing `curl_cffi` dependency; no additional packages or credentials. Exact source hosts are allowlisted, redirects validated and connections pinned to public IPs. Source requests bypass environment proxies; if system DNS returns Fake-IP/private addresses, the adapter uses a bounded TLS-verified `dns.alidns.com` lookup. Failed validation is not bypassed.
 
 ## Production (Docker on VPS)
 

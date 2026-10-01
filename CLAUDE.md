@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**AETHER** — magazine-editorial React SPA + Node proxy for MissAV-class metadata (Recombee + HTML scrape) and surrit HLS playback. The browser never calls MissAV/Recombee hosts for catalog APIs; only covers (`fourhoi.com`) and (via proxy) stream media leave the app origin.
+**AETHER** — magazine-editorial React SPA + Node proxy for MissAV-class metadata (Recombee + HTML scrape), surrit HLS playback, and Huangguo AI short dramas. Catalog APIs stay same-origin; MissAV covers load from `fourhoi.com`, while Huangguo covers and all stream media use the proxy.
 
 Sibling product docs (parent of this repo): `../docs/api-contract.md`, `../docs/DECISIONS.md`, `../docs/adr/`.
 
@@ -24,7 +24,8 @@ Sibling product docs (parent of this repo): `../docs/api-contract.md`, `../docs/
 | `npm run build` | `tsc -b && vite build` → `dist/` |
 | `npm start` | Production-like: API serves `dist/` + SPA fallback |
 | `npm run lint` | `oxlint` (React + TS plugins; `.oxlintrc.json`) |
-| `npm test` | `node:test` pure functions, local HTTP contracts, and pager rendering |
+| `npm test` | `node:test` pure functions, HTTP/auth/drama contracts, pager and player checks |
+| `npm run test:python` | Offline Python parser/media/Huangguo checks |
 | `npm run preview` | Vite preview of built assets |
 
 Validate: `npm test` + `npm run build` + `npm run dev` smoke. See `docs/OPTIMIZATION.md` for feature flags (`SCRAPE_WORKER`, `HLS_STREAMING`, `VIDEO_LAZY_STREAM`, `RATE_LIMIT`).
@@ -69,7 +70,7 @@ Node Express (server/index.js → app.js :8787)
   ├─ pybridge → scrapeWorker RPC (scrape_server.py :18791) → spawn fallback
   ├─ mediaWorker → media_server.py :18790 (/fetch + /fetch_stream)
   └─ HLS proxy (hlsProxy.js) playlist rewrite + segment stream
-       only allowlisted hosts: surrit / fourhoi / missav.*
+       allowlisted hosts: surrit / fourhoi / missav.* + exact Huangguo media CDNs
 ```
 
 ### Frontend (`src/`)
@@ -78,11 +79,12 @@ Node Express (server/index.js → app.js :8787)
 - **Auth UX:** `AuthShell` boots on `/api/auth/status`; locked → `AccessGate`. Unlock only after server sets HttpOnly cookie — client state alone cannot open APIs.
 - **API client:** `src/lib/api.ts` — all fetches use `credentials: 'include'` and `X-Locale`. Category lists use `listCache.ts` (memory + in-flight dedupe) including hover prefetch.
 - **Video list pagination:** `hooks/usePagedList.ts` replaces items for the URL page; `hooks/usePageQuery.ts` preserves filters and navigation state in browser history. Browse/search/category/actress works and topic details use `PagePager`, with no automatic loading of later pages. Filter/sort changes reset page 1. `hasMore` prefers the server flag (scrape pages are ~12 items, not client `pageSize` 24); do not invent a total when the source omits it. Topic fragment pages can omit their header, so direct page URLs fetch page 1 metadata separately.
-- **Routes:** home, browse, search, actresses (+ ranking), `actress/:slug`, genres/makers index, `c/:slug` and `c/:kind/:name`, watch `v/:id`. Nav tree: `src/nav/navConfig.ts`.
-- **Player:** `components/Player.tsx` — hls.js; stream URLs must stay **same-origin** `/api/hls?...` so the session cookie is sent (absolute `http://host:8787/...` breaks dev playback). Quality preference in `localStorage` (`aether.hlsQuality`).
+- **Routes:** home, browse, search, actresses (+ ranking), `actress/:slug`, genres/makers index, `c/:slug` and `c/:kind/:name`, watch `v/:id`, AI dramas `dramas` and `dramas/:id?episode=ep-N`. Nav tree: `src/nav/navConfig.ts`.
+- **AI dramas:** `pages/DramasPage.tsx` uses manual 24-item pagination and exact episode selection. Huangguo `ai-duanju` only, no alternate providers/accounts/downloads; unavailable episodes never fall back to previews or neighbors. Covers use `/api/dramas/:id/cover`.
+- **Player:** `components/Player.tsx` — `format='hls'` (default) uses hls.js/native HLS; `format='mp4'` uses native video. Stream URLs must stay **same-origin** `/api/hls?...` so the session cookie is sent (absolute `http://host:8787/...` breaks dev playback). Quality preference in `localStorage` (`aether.hlsQuality`).
 - **i18n:** `context.tsx` + `i18n.ts` (`zh` / `en`); locale in `localStorage` key `aether.locale`.
 - **Types:** `src/types.ts` is the frontend DTO contract (aligned with `../docs/api-contract.md`).
-- **Styling:** single large `src/index.css`; design tokens/direction in `design-system/aether/MASTER.md` (Soft Cinema Dark). Page-specific design notes under `design-system/aether/pages/` and `design-system/aether-search/`.
+- **Styling:** `src/index.css` aggregates `src/styles/`; `src/styles/tokens.css` defines the Morandi Editorial paper-and-sage palette. Theatre/fullscreen players use dark cinema surfaces. Search design notes: `design-system/aether-search/`.
 
 ### Backend (`server/`)
 
@@ -90,8 +92,8 @@ Node Express (server/index.js → app.js :8787)
 |--------|------|
 | `index.js` | listen, warm workers, warm categories, shutdown |
 | `app.js` | express + middleware + mount `routes/*` + static SPA |
-| `routes/*` | home, catalog, video, actresses, whos, subtitles, health/admin stats |
-| `services/*` | cacheWrap, scrapeMap (+ enrich cache), videoBundle, warm, metrics, homeRails, subtitles |
+| `routes/*` | home, catalog, video, actresses, whos, subtitles, dramas, health/admin stats |
+| `services/*` | cacheWrap, scrapeMap (+ enrich cache), videoBundle, warm, metrics, homeRails, subtitles, dramas |
 | `middleware/*` | security headers, CORS, tiered rate limit |
 | `config.js` | Port, cache L1/GC, Recombee, Miss bases, auth, feature flags |
 | `auth.js` | HMAC session cookie, timing-safe password, per-IP login rate limit |
@@ -103,6 +105,7 @@ Node Express (server/index.js → app.js :8787)
 **Python scripts (`server/py/`):**
 
 - `scrape_list.py` / `scrape_actresses.py` / `scrape_catalog.py` / `scrape_whos.py` / `resolve_stream.py` / `subtitles.py` — CLI + importable by worker
+- `huangguo.py` — Huangguo catalog/detail/exact-episode adapter + validated source transport
 - `scrape_server.py` — long-lived scrape RPC `:18791`
 - `media_server.py` — long-lived `/fetch` + `/fetch_stream` `:18790`
 - `fetch_media.py` — one-shot media fallback
@@ -114,6 +117,7 @@ Node Express (server/index.js → app.js :8787)
 - **Junk slug filter:** `isLikelyVideoId` drops footer/nav false positives (partners, ranking, login, etc.).
 - **Enrichment:** scrape often lacks actresses/duration; `enrichSummariesFromRecombee` fills via public search + `itemId` OR filter (public token cannot `GET /items/{id}`).
 - **Auth public paths:** `/api/health`, `/api/auth/*` only; everything else needs session when `SITE_PASSWORD` is set.
+- **Huangguo:** `routes/dramas.js` → `services/dramas.js` → `py/huangguo.py` via scrape RPC/spawn. Only `ai-duanju`; exact HTTPS hosts `huangguoai.com`, `pic.wirqed.cn`, `yd-hls.tktjpm.cn`, `tp3.wirqed.cn`. Validate every redirect and pin public IPs; bypass environment proxies on source requests. A bounded fixed AliDNS HTTPS fallback handles failed/private/Fake-IP system DNS. Never widen allowlists or bypass validation for CDN changes. Resolve is uncached; cover decoding is bounded and raster-only.
 - **Boot warm:** `warmPopularCategories()` staggers scrape of hot slugs to prime disk cache.
 
 ### API surface (browser-facing)
@@ -132,6 +136,8 @@ POST /api/video/:id/resolve-stream
 GET  /api/video/:id/subtitles?durationSec=   # external zh subs when hasChineseSubtitle=false
 GET  /api/subtitle?url=                       # same-origin WebVTT (host allowlist)
 GET  /api/actresses  /filters  /ranking  /search  /:slug
+GET  /api/dramas?page=  |  /api/dramas/:id  |  /api/dramas/:id/cover
+POST /api/dramas/:id/episodes/:episode/resolve
 GET  /api/whos/frames[/categories|/:id]  /topics[/:id]  /ranking
 ```
 
@@ -144,5 +150,5 @@ Errors: `{ error, code, details? }` (`UPSTREAM`, `NOT_FOUND`, …). Cache mode o
 - Scraping/TLS work stays in Python + `curl_cffi`; do not reintroduce naive Node fetch for MissAV HTML (403).
 - HLS playback must go through `/api/hls` with same-origin URLs in the player.
 - Never put `SITE_PASSWORD` or session secrets in frontend code or commits; `.env` is gitignored.
-- Design/UI: follow `design-system/aether/MASTER.md` (and page overrides) rather than inventing a new palette.
+- Design/UI: reuse `src/styles/tokens.css` and existing component/page styles rather than inventing a new palette.
 - Lint with oxlint; TypeScript project references via root `tsconfig.json` → `tsconfig.app.json` / `tsconfig.node.json`.

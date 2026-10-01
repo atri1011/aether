@@ -15,6 +15,7 @@ import { FrameDetailPage } from './pages/FrameDetailPage'
 import { TopicsPage } from './pages/TopicsPage'
 import { TopicDetailPage } from './pages/TopicDetailPage'
 import { WhosRankingPage } from './pages/WhosRankingPage'
+import { DramasPage, DramaWatchPage } from './pages/DramasPage'
 
 export default function App() {
   return (
@@ -25,6 +26,8 @@ export default function App() {
             <Route element={<Layout />}>
               <Route index element={<HomePage />} />
               <Route path="browse" element={<BrowsePage />} />
+              <Route path="dramas" element={<DramasPage />} />
+              <Route path="dramas/:id" element={<DramaWatchPage />} />
               <Route path="search" element={<SearchPage />} />
               <Route path="actresses" element={<ActressesPage />} />
               <Route path="actresses/ranking" element={<ActressesPage />} />

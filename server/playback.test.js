@@ -160,6 +160,27 @@ describe('topic playback HTTP contract', () => {
     assert.equal((await get('/api/hls?url=' + encodeURIComponent('https://v.hersav.me.example.com/a.m3u8'))).status, 400)
   })
 
+  it('rewrites uppercase and extensionless text playlists without decoding binary keys as text', async (t) => {
+    let body = '#EXTM3U\nhttps://tp3.wirqed.cn/segment.ts\n'
+    const calls = []
+    mockUpstream(t, async (url) => {
+      calls.push(url.pathname)
+      return new Response(body, { headers: { 'Content-Type': 'text/plain' } })
+    })
+    for (const file of ['master.M3U8', 'manifest']) {
+      calls.length = 0
+      const response = await get('/api/hls?url=' + encodeURIComponent(`https://yd-hls.tktjpm.cn/${file}`))
+      assert.equal(response.status, 200)
+      assert.equal(response.headers.get('content-type').split(';')[0], 'application/vnd.apple.mpegurl')
+      assert.ok((await response.text()).includes('/api/hls?url=' + encodeURIComponent('https://tp3.wirqed.cn/segment.ts')))
+      assert.deepEqual(calls, file === 'master.M3U8' ? ['/fetch'] : ['/fetch_stream', '/fetch'])
+    }
+    body = new Uint8Array([255, 0, 128, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+    const key = await get('/api/hls?url=' + encodeURIComponent('https://tp3.wirqed.cn/key'))
+    assert.equal(key.status, 200)
+    assert.deepEqual(new Uint8Array(await key.arrayBuffer()), body)
+  })
+
   it('streams byte ranges and cancels the upstream body when the browser leaves', async (t) => {
     const target = 'https://v.hersav.me/test/segment.ts?token=%2F'
     let upstreamSignal, cancelled = false, streaming = false

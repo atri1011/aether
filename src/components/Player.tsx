@@ -23,6 +23,7 @@ export type SubtitleOption = {
 
 type Props = {
   src: string | null
+  format?: 'hls' | 'mp4'
   startTime?: number
   onRetry: (position: number) => void
   retrying?: boolean
@@ -204,6 +205,7 @@ async function exitFs() {
 
 export function Player({
   src,
+  format = 'hls',
   startTime = 0,
   onRetry,
   retrying = false,
@@ -689,7 +691,7 @@ export function Player({
       hlsRef.current = null
     }
 
-    if (Hls.isSupported()) {
+    if (format === 'hls' && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
@@ -755,8 +757,8 @@ export function Player({
         hls.stopLoad()
         setError(labels.playbackError)
       })
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari native HLS — no level API; browser ABR only
+    } else if (format === 'mp4' || video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Native MP4 or Safari HLS — no hls.js level API.
       video.src = playSrc
       const seekToStart = () => {
         if (startTime > 0 && Number.isFinite(video.duration)) {
@@ -786,7 +788,7 @@ export function Player({
       video.removeAttribute('src')
       video.load()
     }
-  }, [src, startTime, applyLevel, labels.playbackError])
+  }, [src, format, startTime, applyLevel, labels.playbackError])
 
   const activeLabel = useMemo(() => {
     if (selectedLevel === -1) {

@@ -4,6 +4,9 @@ import type {
   ActressProfile,
   ActressSummary,
   CategoryItem,
+  DramaDetail,
+  DramaList,
+  DramaStream,
   HomeMorePayload,
   HomePayload,
   Locale,
@@ -43,8 +46,9 @@ function isAbortError(e: unknown) {
   )
 }
 
-async function getJson<T>(url: string, locale: Locale, opts?: FetchOpts): Promise<T> {
+async function getJson<T>(url: string, locale: Locale, opts?: FetchOpts & { method?: 'GET' | 'POST' }): Promise<T> {
   const res = await fetch(url, {
+    method: opts?.method,
     credentials: 'include',
     headers: { 'X-Locale': locale, Accept: 'application/json' },
     signal: opts?.signal,
@@ -100,6 +104,16 @@ export type VideoListResponse = PagedResult<VideoSummary> & {
 }
 
 export const api = {
+  dramas: (locale: Locale, page = 1, opts?: FetchOpts) =>
+    getJson<DramaList>(`/api/dramas?page=${page}`, locale, opts),
+  drama: (id: string, locale: Locale, opts?: FetchOpts) =>
+    getJson<DramaDetail>(`/api/dramas/${encodeURIComponent(id)}`, locale, opts),
+  dramaStream: (id: string, episode: string, locale: Locale, opts?: FetchOpts) =>
+    getJson<DramaStream>(
+      `/api/dramas/${encodeURIComponent(id)}/episodes/${encodeURIComponent(episode)}/resolve`,
+      locale,
+      { ...opts, method: 'POST' },
+    ),
   /** Public: whether gate is on + current session */
   authStatus: (locale: Locale = 'zh', opts?: FetchOpts) =>
     getJson<AuthStatus>(`/api/auth/status?locale=${locale}`, locale, opts),

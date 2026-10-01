@@ -64,6 +64,14 @@ export const NAV: NavEntry[] = [
     icon: 'browse',
   },
   {
+    type: 'link',
+    id: 'ai-dramas',
+    titleZh: 'AI 短剧',
+    titleEn: 'AI Dramas',
+    to: '/dramas',
+    icon: 'topics',
+  },
+  {
     type: 'group',
     id: 'watch-jav',
     titleZh: '观看 JAV',

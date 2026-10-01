@@ -7,7 +7,7 @@
 | API 契约 / 上游 | `../docs/api-contract.md` | Recombee 签名、DTO、拓扑 |
 | 决策记录 | `../docs/DECISIONS.md`、`../docs/adr/` | 架构取舍 |
 | 术语 | `../docs/glossary.md` | 名词表 |
-| 设计系统 | `design-system/aether/` | Soft Cinema Dark UI |
+| 设计系统 | `src/styles/tokens.css`、`design-system/aether-search/` | Morandi Editorial 浅灰纸感 / 灰绿，影院模式深色 |
 | AI 助手索引 | `CLAUDE.md` | 给 Claude Code 的精简地图 |
 | 运维速查 | `README.md` | 启动 / Docker / Env |
 | **优化实现** | [`OPTIMIZATION.md`](./OPTIMIZATION.md) | 待做性能/安全/结构改造的分期、步骤、验收 |
@@ -19,8 +19,9 @@
 **AETHER** = 杂志编辑风格的 React SPA + Node 同源代理。
 
 - 元数据：Recombee 公开签名 API + MissAV HTML 抓取（Python `curl_cffi`）
-- 播放：surrit HLS，经 `/api/hls` 代理（补 missav Referer）
-- 封面：浏览器直连 `fourhoi.com`（不经 API）
+- AI 短剧：仅黄果 `ai-duanju` 目录，列表 / 详情 / 选集 / 封面同源代理（见 7.10）
+- 播放：surrit HLS 与黄果 HLS/MP4，经 `/api/hls` 代理（按来源补请求头）
+- 封面：MissAV 浏览器直连 `fourhoi.com`；黄果走 `/api/dramas/:id/cover`
 - **浏览器不直接请求** MissAV / Recombee 的 catalog API
 
 ```
@@ -35,7 +36,7 @@ Node Express (server/index.js :8787)
   ├─ pybridge → server/py/*.py（列表 / 女优 / 目录 / 解析流 / 外部字幕）
   ├─ mediaWorker → media_server.py :18790（HLS 上游拉取）
   └─ hlsProxy → GET /api/hls?url=
-       仅 allowlist: surrit / fourhoi / missav.*
+       allowlist: surrit / fourhoi / missav.* + 黄果精确媒体域名
 ```
 
 ---
@@ -75,7 +76,8 @@ cp .env.example .env
 | `npm run build` | `tsc -b && vite build` → `dist/` |
 | `npm start` | 生产形态：API 托管 `dist/` + SPA fallback |
 | `npm run lint` | `oxlint` |
-| `npm test` | `node:test` 核心纯函数、HTTP 契约与分页组件渲染检查 |
+| `npm test` | `node:test` 核心纯函数、鉴权/短剧 HTTP 契约、分页与播放器检查 |
+| `npm run test:python` | Python 解析器、媒体代理与黄果安全边界的离线检查 |
 | `npm run preview` | 预览已构建静态资源 |
 
 改完后至少：
@@ -188,6 +190,8 @@ curl -s http://127.0.0.1:8787/api/health
 |------|------|
 | `/` | HomePage |
 | `/browse` | BrowsePage |
+| `/dramas` | DramasPage：黄果 AI 短剧，按热度手动分页 |
+| `/dramas/:id?episode=ep-N` | DramaWatchPage：详情、选集与同源播放 |
 | `/search` | SearchPage |
 | `/actresses`、`/actresses/ranking` | ActressesPage |
 | `/actress/:slug` | ActressDetailPage |
@@ -226,7 +230,7 @@ curl -s http://127.0.0.1:8787/api/health
 
 ### 6.3 播放器
 
-- `components/Player.tsx`：hls.js
+- `components/Player.tsx`：默认 hls.js / 原生 HLS；`format='mp4'` 走原生 video
 - 流地址必须是**同源相对路径** `/api/hls?url=...`  
   绝对地址 `http://host:8787/...` 在 Vite 开发下会丢 session cookie → `manifestLoadError`
 - 画质偏好：`localStorage` key `aether.hlsQuality`
@@ -242,8 +246,8 @@ curl -s http://127.0.0.1:8787/api/health
 
 ### 6.5 UI
 
-- 遵循 `design-system/aether/MASTER.md`（Soft Cinema Dark）
-- 样式集中在 `src/index.css`；页面级备注可看 `design-system/aether/pages/`
+- 复用 `src/styles/tokens.css` 的 Morandi Editorial 浅灰纸感 / 灰绿配色；影院与全屏保持深色
+- `src/index.css` 聚合 `src/styles/` 模块；短剧样式在 `src/styles/pages/dramas.css`
 
 ### 6.6 新增列表类页面检查清单
 
@@ -309,6 +313,7 @@ TTL（毫秒）在 `config.ttl`：`home` / `search` / `browse` / `video` / `stre
 | `pyScrapeActresses*` | `scrape_actresses.py` |
 | `pyScrapeCatalog` | `scrape_catalog.py` |
 | `pyResolveStream` | `resolve_stream.py` |
+| `pyHuangguo` | `huangguo.py`（RPC `/scrape/huangguo`，spawn 回退同脚本） |
 | `pySubtitleSearch` / `pySubtitleFetch` | `subtitles.py`（RPC `/subtitles/*`，spawn 回退同脚本） |
 
 约定：脚本 stdout 打印 **一行 JSON**；`ok: false` 或非 0 退出由 Node 转成错误。超时默认约 45–60s。
@@ -352,6 +357,17 @@ Xunlei oracle（人工上传 SRT，主源）与 SubtitleCat（机器翻译 HTML 
 5. 分类导航：`categories.js` + `navConfig.ts` 双写
 6. 抓取逻辑只放 Python + `curl_cffi`，**不要**用裸 Node `fetch` 打 MissAV HTML（易 403）
 
+### 7.10 黄果 AI 短剧
+
+- `routes/dramas.js` → `services/dramas.js` → `pyHuangguo` → `py/huangguo.py`；复用 scrape RPC、spawn 回退、缓存、门禁及媒体 worker。
+- 只接 `huangguoai.com` 的 `ai-duanju` 热度目录，每页 24 条。前端 `/dramas` 使用 `usePageQuery` + `PagePager`，选集链接为 `/dramas/:id?episode=ep-N`；返回目录保留来源页。
+- 列表缓存 5 分钟、详情 10 分钟，可 stale fallback；封面缓存 1 小时，不返回过期封面。key 前缀 `dramas:huangguo:*:v1:`。
+- 浏览器封面走 ID-only `/api/dramas/:id/cover`，服务端验证并解码 JPEG/PNG/GIF/WebP；客户端不能传任意源 URL。
+- 分集解析不缓存签名地址，仅返回当前指定分集。付费或不可用返回 `EPISODE_UNAVAILABLE`/409，不降级为预览或相邻集，不迁入旧版账号接口、其他源或下载功能。
+- `Player` 的 `format` 默认为 `hls`；短剧 MP4 传 `format='mp4'` 使用原生 video。两种格式都走同源 `/api/hls`，保留 HLS 清单/key 改写与 MP4 Range。
+- 精确 HTTPS 白名单：元数据 `huangguoai.com`、封面 `pic.wirqed.cn`、媒体 `yd-hls.tktjpm.cn` / `tp3.wirqed.cn`。逐跳验证重定向，连接固定到已验证公网 IP，源请求禁用环境代理。系统 DNS 失败或返回非公网/Fake-IP 时，使用固定 `dns.alidns.com` 的限时、限大小 HTTPS 查询；校验失败直接报错，不放宽安全边界。
+- 无新增依赖或账号配置。离线回归：`server/dramas.test.js`、`server/py/huangguo_test.py`、`server/playback.test.js`、`src/components/Player.test.js`。
+
 ---
 
 ## 8. 浏览器可见 API 一览
@@ -383,6 +399,10 @@ GET  /api/actresses/filters
 GET  /api/actresses/ranking
 GET  /api/actresses/search?q=
 GET  /api/actresses/:slug
+GET  /api/dramas?page=
+GET  /api/dramas/:id
+GET  /api/dramas/:id/cover
+POST /api/dramas/:id/episodes/:episode/resolve
 GET  /api/whos/frames/categories
 GET  /api/whos/frames?type=&labelId=&page=
 GET  /api/whos/frames/:id

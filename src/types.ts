@@ -165,6 +165,29 @@ export interface VideoFilterOptions {
   sorts: FilterOption[]
 }
 
+export interface DramaSummary {
+  id: string
+  title: string
+  coverUrl: string
+  description?: string
+  episodeCount?: number | null
+  status?: 'ongoing' | 'completed'
+}
+
+export interface DramaList extends PagedResult<DramaSummary> {
+  hasMore: boolean
+}
+
+export interface DramaDetail {
+  drama: DramaSummary
+  episodes: { id: string; title: string; number: number }[]
+}
+
+export interface DramaStream {
+  url: string
+  type: 'hls' | 'mp4'
+}
+
 export type Locale = 'zh' | 'en'
 
 /** whos.tv frame card (16:9 scene still) */

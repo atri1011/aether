@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { config } from './config.js'
 import { mediaFetch, mediaFetchStream } from './mediaWorker.js'
 import { metrics } from './services/metrics.js'
+import { isHuangguoUrl } from './services/dramas.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const oneShotScript = path.join(__dirname, 'py', 'fetch_media.py')
@@ -77,6 +78,7 @@ function hostAllowed(hostname) {
 }
 
 export function isAllowedMediaUrl(raw) {
+  if (isHuangguoUrl(raw)) return true
   try {
     const u = new URL(raw)
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return false
@@ -134,8 +136,8 @@ export function rewriteM3u8(body, playlistUrl, req) {
 
 function looksLikePlaylist(target, contentType, textHead) {
   return (
-    /m3u8|mpegurl|application\/vnd\.apple\.mpegurl|text\/plain/i.test(contentType || '') ||
-    target.includes('.m3u8') ||
+    /m3u8|mpegurl|application\/vnd\.apple\.mpegurl/i.test(contentType || '') ||
+    target.toLowerCase().includes('.m3u8') ||
     (textHead || '').includes('#EXTM3U')
   )
 }
@@ -158,8 +160,8 @@ export async function handleHlsProxy(req, res) {
   }
 
   const wantStream =
-    config.hlsStreamingEnabled &&
-    !target.includes('.m3u8') &&
+    (config.hlsStreamingEnabled || isHuangguoUrl(target)) &&
+    !target.toLowerCase().includes('.m3u8') &&
     !/playlist/i.test(target)
 
   const ctrl = new AbortController()
@@ -172,7 +174,7 @@ export async function handleHlsProxy(req, res) {
     if (wantStream) {
       try {
         const up = await mediaFetchStream(target, opts)
-        if (!looksLikePlaylist(target, up.contentType, '')) {
+        if (!looksLikePlaylist(target, up.contentType, '') && !/^text\/plain\b/i.test(up.contentType || '')) {
           res.status(up.status || 200)
           res.setHeader('Content-Type', up.contentType || 'application/octet-stream')
           res.setHeader('Cache-Control', 'public, max-age=120')

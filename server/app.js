@@ -20,6 +20,7 @@ import {
 } from './middleware/security.js'
 import actressesRouter from './routes/actresses.js'
 import catalogRouter from './routes/catalog.js'
+import dramasRouter from './routes/dramas.js'
 import healthRouter from './routes/health.js'
 import homeRouter from './routes/home.js'
 import subtitlesRouter from './routes/subtitles.js'
@@ -52,6 +53,7 @@ export function createApp() {
   app.use(actressesRouter)
   app.use(whosRouter)
   app.use(subtitlesRouter)
+  app.use(dramasRouter)
 
   // production static
   const dist = path.join(__dirname, '..', 'dist')

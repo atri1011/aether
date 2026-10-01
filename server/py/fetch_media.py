@@ -12,6 +12,7 @@ except ImportError:
     sys.exit(2)
 
 from curl_opts import CURL_OPTS  # type: ignore
+from huangguo import MEDIA_HOSTS as HUANGGUO_HOSTS, fetch_source
 
 
 def main():
@@ -28,16 +29,19 @@ def main():
     }
     if len(sys.argv) > 2:
         headers["Range"] = sys.argv[2]
-    r = requests.get(
-        url,
-        # Align with media_server / list scrapers (OPT-18)
-        impersonate="chrome124",
-        timeout=45,
-        headers=headers,
-        allow_redirects=True,
-        # Force IPv4 — dual-stack CF AAAA often RST (curl 35) on CN paths
-        curl_options=CURL_OPTS or None,
-    )
+    if urlparse(url).hostname in HUANGGUO_HOSTS:
+        r = fetch_source(url, "media", range_header=sys.argv[2] if len(sys.argv) > 2 else None)
+    else:
+        r = requests.get(
+            url,
+            # Align with media_server / list scrapers (OPT-18)
+            impersonate="chrome124",
+            timeout=45,
+            headers=headers,
+            allow_redirects=True,
+            # Force IPv4 — dual-stack CF AAAA often RST (curl 35) on CN paths
+            curl_options=CURL_OPTS or None,
+        )
     # write status on stderr for node
     sys.stderr.write(f"STATUS {r.status_code}\n")
     sys.stderr.write(f"CTYPE {r.headers.get('content-type', '')}\n")

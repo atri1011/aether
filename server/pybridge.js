@@ -310,6 +310,14 @@ export function pyScrapeWhos(mode, opts = {}) {
   )
 }
 
+/** Public Huangguo AI-drama website. Failures remain structured, never empty lists. */
+export function pyHuangguo(mode, opts = {}) {
+  const body = { ...opts, mode }
+  return withWorker('/scrape/dramas', body, () =>
+    runPython('huangguo.py', [JSON.stringify(body)], { timeoutMs: 60000 }),
+  )
+}
+
 /** External Chinese-subtitle lookup — see subtitles.py (SUB-01). */
 export function pySubtitleSearch(code, durationSec = 0) {
   const c = String(code || '').trim()
