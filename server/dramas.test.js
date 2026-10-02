@@ -11,6 +11,7 @@ import { cacheL1Clear } from './cache.js'
 import { decodeHuangguoImage, isHuangguoUrl } from './services/dramas.js'
 import { isAllowedMediaUrl } from './hlsProxy.js'
 
+const mediaCdns = Array.from({ length: 8 }, (_, i) => `tp${i + 1}.wirqed.cn`)
 const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.alloc(24)])
 function encrypt(bytes, padding = false) {
   const cipher = createCipheriv('aes-128-cbc', Buffer.from('f5d965df75336270'), Buffer.from('97b60394abc2fbe1'))
@@ -31,9 +32,10 @@ it('decodes only bounded public image framing using synthetic bytes', () => {
 })
 
 it('allows only verified exact HTTPS CDN hosts', () => {
-  for (const host of ['yd-hls.tktjpm.cn', 'tp3.wirqed.cn']) assert.equal(isAllowedMediaUrl(`https://${host}/a`), true)
+  for (const host of ['yd-hls.tktjpm.cn', ...mediaCdns]) assert.equal(isAllowedMediaUrl(`https://${host}/a`), true)
   assert.equal(isHuangguoUrl('https://pic.wirqed.cn/a', 'cover'), true)
-  for (const url of ['https://x.tp3.wirqed.cn/a', 'http://tp3.wirqed.cn/a', 'https://tp3.wirqed.cn:444/a', 'https://user@tp3.wirqed.cn/a', 'https://cloudfront.net/a']) {
+  for (const url of ['https://x.tp3.wirqed.cn/a', 'http://tp3.wirqed.cn/a', 'https://tp3.wirqed.cn:444/a', 'https://user@tp3.wirqed.cn/a', 'https://cloudfront.net/a',
+    'https://x.tp6.wirqed.cn/a', 'https://tp6.wirqed.cn.evil.test/a', 'http://tp6.wirqed.cn/a', 'https://tp6.wirqed.cn:444/a', 'https://user@tp6.wirqed.cn/a', 'https://tp9.wirqed.cn/a']) {
     assert.equal(isAllowedMediaUrl(url), false)
   }
 })
@@ -118,20 +120,36 @@ describe('drama HTTP contracts (offline)', () => {
     try { assert.equal((await get('/api/dramas')).status, 401) } finally { config.sitePassword = '' }
   })
 
-  it('rewrites standard AES HLS keys and segments without changing signed queries', async (t) => {
+  for (const host of mediaCdns) it(`rewrites and fetches AES HLS keys and segments on ${host} without changing signed queries`, async (t) => {
     const target = 'https://yd-hls.tktjpm.cn/main.m3u8?auth_key=%2F%2B'
-    const key = 'https://tp3.wirqed.cn/crypt.key?auth_key=%2F'
-    const segment = 'https://tp3.wirqed.cn/0.ts?auth_key=%2B'
+    const key = `https://${host}/crypt.key?auth_key=%2F`
+    const segment = `https://${host}/0.ts?auth_key=%2B`
+    const keyBytes = Buffer.alloc(16, 0xa1)
+    const segmentBytes = Buffer.alloc(188, 0x47)
     t.mock.method(globalThis, 'fetch', (url) => {
       const parsed = new URL(url)
       if (parsed.pathname === '/health') return Promise.resolve(Response.json({ ok: true }))
-      assert.equal(parsed.searchParams.get('url'), target)
-      return Promise.resolve(new Response(`#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="${key}"\n${segment}\n#EXT-X-ENDLIST`, { headers: { 'Content-Type': 'text/plain' } }))
+      const source = parsed.searchParams.get('url')
+      if (source === target) {
+        assert.equal(parsed.pathname, '/fetch')
+        return Promise.resolve(new Response(`#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="${key}"\n${segment}\n#EXT-X-ENDLIST`, { headers: { 'Content-Type': 'text/plain' } }))
+      }
+      assert.equal(parsed.pathname, '/fetch_stream')
+      assert.ok(source === key || source === segment)
+      return Promise.resolve(new Response(source === key ? keyBytes : segmentBytes, {
+        headers: { 'Content-Type': source === key ? 'application/octet-stream' : 'video/mp2t' },
+      }))
     })
     const response = await get('/api/hls?url=' + encodeURIComponent(target))
     assert.equal(response.status, 200)
     const body = await response.text()
-    assert.ok(body.includes('/api/hls?url=' + encodeURIComponent(key)))
-    assert.ok(body.includes('/api/hls?url=' + encodeURIComponent(segment)))
+    const keyPath = body.match(/URI="([^"]+)"/)[1]
+    const segmentPath = body.split('\n').find((line) => line.startsWith('/api/hls?'))
+    for (const [proxyPath, source, bytes] of [[keyPath, key, keyBytes], [segmentPath, segment, segmentBytes]]) {
+      assert.equal(proxyPath, '/api/hls?url=' + encodeURIComponent(source))
+      const media = await get(proxyPath)
+      assert.equal(media.status, 200)
+      assert.deepEqual(Buffer.from(await media.arrayBuffer()), bytes)
+    }
   })
 })

@@ -117,7 +117,7 @@ Node Express (server/index.js → app.js :8787)
 - **Junk slug filter:** `isLikelyVideoId` drops footer/nav false positives (partners, ranking, login, etc.).
 - **Enrichment:** scrape often lacks actresses/duration; `enrichSummariesFromRecombee` fills via public search + `itemId` OR filter (public token cannot `GET /items/{id}`).
 - **Auth public paths:** `/api/health`, `/api/auth/*` only; everything else needs session when `SITE_PASSWORD` is set.
-- **Huangguo:** `routes/dramas.js` → `services/dramas.js` → `py/huangguo.py` via scrape RPC/spawn. Only `ai-duanju`; exact HTTPS hosts `huangguoai.com`, `pic.wirqed.cn`, `yd-hls.tktjpm.cn`, `tp3.wirqed.cn`. Validate every redirect and pin public IPs; bypass environment proxies on source requests. A bounded fixed AliDNS HTTPS fallback handles failed/private/Fake-IP system DNS. Never widen allowlists or bypass validation for CDN changes. Resolve is uncached; cover decoding is bounded and raster-only.
+- **Huangguo:** `routes/dramas.js` → `services/dramas.js` → `py/huangguo.py` via scrape RPC/spawn. Only `ai-duanju`; exact HTTPS hosts `huangguoai.com`, `pic.wirqed.cn`, `yd-hls.tktjpm.cn`, and the eight explicitly listed hosts `tp1.wirqed.cn` through `tp8.wirqed.cn` (HLS keys/segments rotate among them; no wildcard). Validate every redirect and pin public IPs; bypass environment proxies on source requests. A bounded fixed AliDNS HTTPS fallback handles failed/private/Fake-IP system DNS. Never widen allowlists or bypass validation for CDN changes. Resolve is uncached; cover decoding is bounded and raster-only.
 - **Boot warm:** `warmPopularCategories()` staggers scrape of hot slugs to prime disk cache.
 
 ### API surface (browser-facing)

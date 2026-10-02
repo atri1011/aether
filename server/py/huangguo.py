@@ -18,7 +18,11 @@ from curl_opts import CURL_OPTS
 ORIGIN = "https://huangguoai.com"
 PAGE_SIZE = 24
 COVER_HOSTS = {"pic.wirqed.cn"}
-MEDIA_HOSTS = {"yd-hls.tktjpm.cn", "tp3.wirqed.cn"}
+MEDIA_HOSTS = {
+    "yd-hls.tktjpm.cn",
+    "tp1.wirqed.cn", "tp2.wirqed.cn", "tp3.wirqed.cn", "tp4.wirqed.cn",
+    "tp5.wirqed.cn", "tp6.wirqed.cn", "tp7.wirqed.cn", "tp8.wirqed.cn",
+}
 HOSTS = {"page": {"huangguoai.com"}, "cover": COVER_HOSTS, "media": MEDIA_HOSTS}
 LIMITS = {"page": 2 * 1024 * 1024, "cover": 8 * 1024 * 1024, "media": 32 * 1024 * 1024}
 
@@ -39,7 +43,7 @@ def valid_url(url, kind):
         return False
 
 
-_dns_cache = {}  # At most the four fixed source hosts; failures are never cached.
+_dns_cache = {}  # Bounded by the fixed source hosts; failures are never cached.
 
 
 def fallback_addresses(host):

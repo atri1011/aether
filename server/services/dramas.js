@@ -4,7 +4,11 @@ import { pyHuangguo } from '../pybridge.js'
 import { withCache } from './cacheWrap.js'
 
 const COVER_HOSTS = new Set(['pic.wirqed.cn'])
-const MEDIA_HOSTS = new Set(['yd-hls.tktjpm.cn', 'tp3.wirqed.cn'])
+const MEDIA_HOSTS = new Set([
+  'yd-hls.tktjpm.cn',
+  'tp1.wirqed.cn', 'tp2.wirqed.cn', 'tp3.wirqed.cn', 'tp4.wirqed.cn',
+  'tp5.wirqed.cn', 'tp6.wirqed.cn', 'tp7.wirqed.cn', 'tp8.wirqed.cn',
+])
 const MAX_IMAGE = 8 * 1024 * 1024
 const summaryKey = (id) => `dramas:huangguo:summary:v1:${id}`
 

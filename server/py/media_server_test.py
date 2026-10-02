@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.argv[:] = [sys.argv[0]]
 
@@ -40,6 +40,18 @@ class MediaServerTest(unittest.TestCase):
         self.assertEqual(headers["Origin"], "https://whos.tv")
         self.assertEqual(headers["Range"], "bytes=0-1023")
         self.assertEqual(media_server.HEADERS["Origin"], "https://missav.ws")
+
+    def test_huangguo_cdn_uses_validated_transport_for_keys_and_segments(self):
+        for n in range(1, 9):
+            for resource in ('crypt.key', '0.ts'):
+                url = f'https://tp{n}.wirqed.cn/videos/{resource}?auth_key=a%2Fb'
+                with self.subTest(url=url), patch.object(media_server, 'fetch_source') as fetch_source, \
+                        patch.object(media_server.SESSION, 'get') as get:
+                    self.assertTrue(media_server.allowed(url))
+                    response = media_server._fetch_upstream(url, stream=True, range_header='bytes=0-15')
+                    self.assertIs(response, fetch_source.return_value)
+                    fetch_source.assert_called_once_with(url, 'media', stream=True, range_header='bytes=0-15')
+                    get.assert_not_called()
 
     def test_media_allowlist_rejects_credentials_and_lookalike_hosts(self):
         self.assertTrue(media_server.allowed("https://v.hersav.me/test/main.m3u8"))

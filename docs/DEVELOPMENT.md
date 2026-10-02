@@ -365,7 +365,7 @@ Xunlei oracle（人工上传 SRT，主源）与 SubtitleCat（机器翻译 HTML 
 - 浏览器封面走 ID-only `/api/dramas/:id/cover`，服务端验证并解码 JPEG/PNG/GIF/WebP；客户端不能传任意源 URL。
 - 分集解析不缓存签名地址，仅返回当前指定分集。付费或不可用返回 `EPISODE_UNAVAILABLE`/409，不降级为预览或相邻集，不迁入旧版账号接口、其他源或下载功能。
 - `Player` 的 `format` 默认为 `hls`；短剧 MP4 传 `format='mp4'` 使用原生 video。两种格式都走同源 `/api/hls`，保留 HLS 清单/key 改写与 MP4 Range。
-- 精确 HTTPS 白名单：元数据 `huangguoai.com`、封面 `pic.wirqed.cn`、媒体 `yd-hls.tktjpm.cn` / `tp3.wirqed.cn`。逐跳验证重定向，连接固定到已验证公网 IP，源请求禁用环境代理。系统 DNS 失败或返回非公网/Fake-IP 时，使用固定 `dns.alidns.com` 的限时、限大小 HTTPS 查询；校验失败直接报错，不放宽安全边界。
+- 精确 HTTPS 白名单：元数据 `huangguoai.com`、封面 `pic.wirqed.cn`、媒体 `yd-hls.tktjpm.cn` 及逐一列出的 `tp1.wirqed.cn` 至 `tp8.wirqed.cn`（HLS 解密密钥与分片在这八个域名之间轮换；不使用通配符）。逐跳验证重定向，连接固定到已验证公网 IP，源请求禁用环境代理。系统 DNS 失败或返回非公网/Fake-IP 时，使用固定 `dns.alidns.com` 的限时、限大小 HTTPS 查询；校验失败直接报错，不放宽安全边界。
 - 无新增依赖或账号配置。离线回归：`server/dramas.test.js`、`server/py/huangguo_test.py`、`server/playback.test.js`、`src/components/Player.test.js`。
 
 ---
@@ -464,6 +464,7 @@ GET  /api/whos/ranking?kind=video|actress
 |------|------|
 | 列表只有一页 | 看响应 `hasMore`、是否误用 pageSize；抓取是否被当 junk 滤光 |
 | 开发环境无法播放 | 流是否绝对 URL 指向 `:8787`；是否未登录导致 HLS 401 |
+| 短剧清单成功但无法播放 | 检查清单内密钥和分片的 `/api/hls` 请求；`400 host not allowed` 表示 CDN 未获批准。不可用通配域名绕过；获批准的精确域名需同步 Node/Python 白名单并重启 Node 及 Python workers |
 | 全站 401 | `SITE_PASSWORD` 已开；先 `/api/auth/login`；cookie 是否 SameSite/Secure 不匹配 |
 | scrape 全失败 | `pip show curl_cffi`；Python 是否叫 `python`；看 Node 日志 / py stderr |
 | 女优搜索结果串了 | 旧缓存 key 把 CJK 抹成 `_`；清 `.cache/aether` 并确认 `cache.js` 保留 Unicode |
