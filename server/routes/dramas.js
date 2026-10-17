@@ -1,5 +1,13 @@
 import { Router } from 'express'
-import { dramaCover, dramaDetail, dramaNumber, listDramas, resolveDrama } from '../services/dramas.js'
+import {
+  dramaCategory,
+  dramaCover,
+  dramaDetail,
+  dramaNumber,
+  listDramas,
+  normalizeSource,
+  resolveDrama,
+} from '../services/dramas.js'
 import { sendError } from '../util/sendError.js'
 
 const router = Router()
@@ -9,11 +17,19 @@ function failure(res, error) {
   sendError(res, status, code, error.message)
 }
 
+/** `?source=` picks the catalog provider; missing → legacy huangguo default. */
+function sourceOf(req) {
+  return normalizeSource(req.query.source)
+}
+
 router.get('/api/dramas', async (req, res) => {
   try {
     const page = dramaNumber(req.query.page === undefined ? '1' : req.query.page, 10000)
-    const { data, cache } = await listDramas(page)
+    const source = sourceOf(req)
+    const category = dramaCategory(req.query.category)
+    const { data, cache } = await listDramas(page, source, category)
     res.setHeader('X-Aether-Cache', cache)
+    res.setHeader('X-Drama-Source', source)
     res.json(data)
   } catch (error) { failure(res, error) }
 })
@@ -21,8 +37,10 @@ router.get('/api/dramas', async (req, res) => {
 router.get('/api/dramas/:id', async (req, res) => {
   try {
     dramaNumber(req.params.id)
-    const { data, cache } = await dramaDetail(req.params.id)
+    const source = sourceOf(req)
+    const { data, cache } = await dramaDetail(req.params.id, source)
     res.setHeader('X-Aether-Cache', cache)
+    res.setHeader('X-Drama-Source', source)
     res.json(data)
   } catch (error) { failure(res, error) }
 })
@@ -30,7 +48,7 @@ router.get('/api/dramas/:id', async (req, res) => {
 router.get('/api/dramas/:id/cover', async (req, res) => {
   try {
     dramaNumber(req.params.id)
-    const { buffer, type } = await dramaCover(req.params.id)
+    const { buffer, type } = await dramaCover(req.params.id, sourceOf(req))
     res.setHeader('Content-Type', type)
     res.setHeader('Cache-Control', 'private, max-age=3600')
     res.send(buffer)
@@ -43,7 +61,8 @@ router.post('/api/dramas/:id/episodes/:episode/resolve', async (req, res) => {
     dramaNumber(req.params.id)
     if (!/^ep-[1-9]\d*$/.test(req.params.episode)) throw Object.assign(new Error('Invalid episode'), { code: 'CONFIG' })
     const episode = dramaNumber(req.params.episode.slice(3), 10000)
-    res.json(await resolveDrama(req.params.id, episode))
+    const stream = await resolveDrama(req.params.id, episode, sourceOf(req))
+    res.json({ ...stream, source: sourceOf(req) })
   } catch (error) { failure(res, error) }
 })
 

@@ -6,6 +6,7 @@ import type {
   CategoryItem,
   DramaDetail,
   DramaList,
+  DramaSource,
   DramaStream,
   HomeMorePayload,
   HomePayload,
@@ -104,13 +105,30 @@ export type VideoListResponse = PagedResult<VideoSummary> & {
 }
 
 export const api = {
-  dramas: (locale: Locale, page = 1, opts?: FetchOpts) =>
-    getJson<DramaList>(`/api/dramas?page=${page}`, locale, opts),
-  drama: (id: string, locale: Locale, opts?: FetchOpts) =>
-    getJson<DramaDetail>(`/api/dramas/${encodeURIComponent(id)}`, locale, opts),
-  dramaStream: (id: string, episode: string, locale: Locale, opts?: FetchOpts) =>
+  dramas: (
+    locale: Locale,
+    page = 1,
+    opts?: FetchOpts & { source?: DramaSource; category?: string },
+  ) => {
+    const params = new URLSearchParams({ page: String(page) })
+    if (opts?.source) params.set('source', opts.source)
+    if (opts?.category) params.set('category', opts.category)
+    return getJson<DramaList>(`/api/dramas?${params}`, locale, opts)
+  },
+  drama: (id: string, locale: Locale, opts?: FetchOpts & { source?: DramaSource }) =>
+    getJson<DramaDetail>(
+      `/api/dramas/${encodeURIComponent(id)}${opts?.source ? `?source=${opts.source}` : ''}`,
+      locale,
+      opts,
+    ),
+  dramaStream: (
+    id: string,
+    episode: string,
+    locale: Locale,
+    opts?: FetchOpts & { source?: DramaSource },
+  ) =>
     getJson<DramaStream>(
-      `/api/dramas/${encodeURIComponent(id)}/episodes/${encodeURIComponent(episode)}/resolve`,
+      `/api/dramas/${encodeURIComponent(id)}/episodes/${encodeURIComponent(episode)}/resolve${opts?.source ? `?source=${opts.source}` : ''}`,
       locale,
       { ...opts, method: 'POST' },
     ),

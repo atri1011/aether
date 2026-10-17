@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { config } from './config.js'
 import { mediaFetch, mediaFetchStream } from './mediaWorker.js'
 import { metrics } from './services/metrics.js'
-import { isHuangguoUrl } from './services/dramas.js'
+import { isDramaMediaUrl } from './services/dramas.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const oneShotScript = path.join(__dirname, 'py', 'fetch_media.py')
@@ -78,7 +78,7 @@ function hostAllowed(hostname) {
 }
 
 export function isAllowedMediaUrl(raw) {
-  if (isHuangguoUrl(raw)) return true
+  if (isDramaMediaUrl(raw)) return true
   try {
     const u = new URL(raw)
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return false
@@ -160,7 +160,7 @@ export async function handleHlsProxy(req, res) {
   }
 
   const wantStream =
-    (config.hlsStreamingEnabled || isHuangguoUrl(target)) &&
+    (config.hlsStreamingEnabled || isDramaMediaUrl(target)) &&
     !target.toLowerCase().includes('.m3u8') &&
     !/playlist/i.test(target)
 

@@ -7,6 +7,7 @@ POST /scrape/list
 POST /scrape/actresses
 POST /scrape/catalog
 POST /scrape/whos
+POST /scrape/qce          { mode: list|detail|resolve|cover, ... }
 POST /resolve
 POST /subtitles/search   { code, durationSec? }
 POST /subtitles/fetch    { url }
@@ -19,6 +20,7 @@ import sys
 import threading
 import traceback
 import huangguo
+import qce
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote
 
@@ -221,6 +223,7 @@ def handle_subtitles_fetch(body: dict) -> dict:
 
 ROUTES = {
     "/scrape/dramas": huangguo.scrape,
+    "/scrape/qce": qce.scrape,
     "/scrape/list": handle_list,
     "/scrape/actresses": handle_actresses,
     "/scrape/catalog": handle_catalog,

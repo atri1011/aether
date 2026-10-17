@@ -19,7 +19,7 @@
 **AETHER** = 杂志编辑风格的 React SPA + Node 同源代理。
 
 - 元数据：Recombee 公开签名 API + MissAV HTML 抓取（Python `curl_cffi`）
-- AI 短剧：仅黄果 `ai-duanju` 目录，列表 / 详情 / 选集 / 封面同源代理（见 7.10）
+- AI 短剧：QCE（`av.qce.me`）与黄果 `ai-duanju` 双源，列表 / 详情 / 选集 / 封面同源代理（见 7.10、7.11）
 - 播放：surrit HLS 与黄果 HLS/MP4，经 `/api/hls` 代理（按来源补请求头）
 - 封面：MissAV 浏览器直连 `fourhoi.com`；黄果走 `/api/dramas/:id/cover`
 - **浏览器不直接请求** MissAV / Recombee 的 catalog API
@@ -190,7 +190,7 @@ curl -s http://127.0.0.1:8787/api/health
 |------|------|
 | `/` | HomePage |
 | `/browse` | BrowsePage |
-| `/dramas` | DramasPage：黄果 AI 短剧，按热度手动分页 |
+| `/dramas` | DramasPage：多源短剧库（QCE / 黄果），分类 chip + 手动分页 |
 | `/dramas/:id?episode=ep-N` | DramaWatchPage：详情、选集与同源播放 |
 | `/search` | SearchPage |
 | `/actresses`、`/actresses/ranking` | ActressesPage |
@@ -368,6 +368,19 @@ Xunlei oracle（人工上传 SRT，主源）与 SubtitleCat（机器翻译 HTML 
 - 精确 HTTPS 白名单：元数据 `huangguoai.com`、封面 `pic.wirqed.cn`、媒体 `yd-hls.tktjpm.cn` 及逐一列出的 `tp1.wirqed.cn` 至 `tp8.wirqed.cn`（HLS 解密密钥与分片在这八个域名之间轮换；不使用通配符）。逐跳验证重定向，连接固定到已验证公网 IP，源请求禁用环境代理。系统 DNS 失败或返回非公网/Fake-IP 时，使用固定 `dns.alidns.com` 的限时、限大小 HTTPS 查询；校验失败直接报错，不放宽安全边界。
 - 无新增依赖或账号配置。离线回归：`server/dramas.test.js`、`server/py/huangguo_test.py`、`server/playback.test.js`、`src/components/Player.test.js`。
 
+### 7.11 av.qce.me 短剧源（`source=qce`，前端默认）
+
+- 多源架构：`services/dramas.js` 的 `DRAMA_SOURCES` 注册 `huangguo` / `qce`，路由用 `?source=` 选择，缺省仍是 `huangguo`（保持既有 API 契约）；`/dramas` 页面默认停在 `qce`。未知 source → 400 `CONFIG`。
+- 数据源：`py/qce.py`，复用 scrape RPC（`POST /scrape/qce`）+ spawn 回退。端点全部为公开只读 JSON，无账号、无 Cookie：
+  - `GET /api/catalog?page=&size=24&category=&q=` → `total` / `has_more` / `categories[{name,count}]` / `list[]`
+  - `GET /api/drama/<id>` → `eps[{ep,url}]`，`url` 是带 `s`/`e` 签名的 m3u8 相对路径
+  - `GET /cover/<id>` → 原始 JPEG/PNG（**不解码**，与黄果的 AES 封面不同）
+  - `GET /hls/<n>/index.m3u8?s=..&e=..` / `key` / `*.ts` → AES-128，密钥与分片同源
+- 分类：`?category=` 透传站点 `categories[].name`（成人漫剧 330 / AI短剧 196 / 擦边短剧 117），`dramaCategory()` 限制长度 ≤40 并拒绝控制字符；缓存 key 含分类，`dramas:qce:list:v2:<category>:<page>`。
+- 播放：`resolve` 只取当前请求的 `ep`（不跨集回退），返回 `/api/hls?url=...`；HLS 代理白名单新增 `isQceUrl` —— 仅 `https://av.qce.me` 的 `/hls/` 前缀（封面仅 `/cover/`），拒绝子域、端口、userinfo、fragment 与控制字符。媒体 worker / `fetch_media.py` 同步放行并保持 `stream=True`，否则 `fetch_stream` 会返回 0 字节。
+- 空集：站点里 AI短剧 / 擦边短剧 的 `eps` 目前为空（仅 `episodes` 计数），详情照常返回 0 集，前端显示「源站暂未提供可播放分集」；成人漫剧 330 部全部有 `eps`。
+- 回归：`server/py/qce_test.py`（11 例）、`server/dramas.test.js` 的 `?source=qce` 契约用例。
+
 ---
 
 ## 8. 浏览器可见 API 一览
@@ -399,10 +412,10 @@ GET  /api/actresses/filters
 GET  /api/actresses/ranking
 GET  /api/actresses/search?q=
 GET  /api/actresses/:slug
-GET  /api/dramas?page=
-GET  /api/dramas/:id
-GET  /api/dramas/:id/cover
-POST /api/dramas/:id/episodes/:episode/resolve
+GET  /api/dramas?page=&source=qce|huangguo&category=
+GET  /api/dramas/:id?source=
+GET  /api/dramas/:id/cover?source=
+POST /api/dramas/:id/episodes/:episode/resolve?source=
 GET  /api/whos/frames/categories
 GET  /api/whos/frames?type=&labelId=&page=
 GET  /api/whos/frames/:id

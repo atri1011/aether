@@ -13,6 +13,7 @@ except ImportError:
 
 from curl_opts import CURL_OPTS  # type: ignore
 from huangguo import MEDIA_HOSTS as HUANGGUO_HOSTS, fetch_source
+from qce import HOST as QCE_HOST, valid_url as qce_valid, fetch as qce_fetch
 
 
 def main():
@@ -31,6 +32,11 @@ def main():
         headers["Range"] = sys.argv[2]
     if urlparse(url).hostname in HUANGGUO_HOSTS:
         r = fetch_source(url, "media", range_header=sys.argv[2] if len(sys.argv) > 2 else None)
+    elif urlparse(url).hostname == QCE_HOST:
+        if not qce_valid(url, "media"):
+            sys.stderr.write("unsupported qce url\n")
+            sys.exit(1)
+        r = qce_fetch(url, "media")
     else:
         r = requests.get(
             url,

@@ -8,7 +8,7 @@ import { once } from 'node:events'
 import { createApp } from './app.js'
 import { config } from './config.js'
 import { cacheL1Clear } from './cache.js'
-import { decodeHuangguoImage, isHuangguoUrl } from './services/dramas.js'
+import { decodeHuangguoImage, isHuangguoUrl, isQceUrl } from './services/dramas.js'
 import { isAllowedMediaUrl } from './hlsProxy.js'
 
 const mediaCdns = [
@@ -32,6 +32,21 @@ it('decodes only bounded public image framing using synthetic bytes', () => {
   for (const bytes of [Buffer.alloc(0), Buffer.from('<svg>'), Buffer.alloc(8 * 1024 * 1024 + 1)]) {
     assert.throws(() => decodeHuangguoImage(bytes))
   }
+})
+
+it('allows only av.qce.me /hls and /cover paths for the qce source', () => {
+  for (const url of ['https://av.qce.me/hls/595/index.m3u8?s=a%2Fb&e=1', 'https://av.qce.me/hls/595/key?s=a&e=1', 'https://av.qce.me/hls/595/e1_000.ts']) {
+    assert.equal(isQceUrl(url, 'media'), true)
+    assert.equal(isAllowedMediaUrl(url), true)
+  }
+  for (const url of ['http://av.qce.me/hls/1/index.m3u8', 'https://av.qce.me.evil.test/hls/1.m3u8',
+    'https://user@av.qce.me/hls/1.m3u8', 'https://av.qce.me:444/hls/1/index.m3u8',
+    'https://av.qce.me/api/catalog', 'https://av.qce.me/cover/1', 'https://qce.me/hls/1/index.m3u8']) {
+    assert.equal(isQceUrl(url, 'media'), false, url)
+    assert.equal(isAllowedMediaUrl(url), false, url)
+  }
+  assert.equal(isQceUrl('https://av.qce.me/cover/640', 'cover'), true)
+  assert.equal(isQceUrl('https://av.qce.me/hls/1/index.m3u8', 'cover'), false)
 })
 
 it('allows only verified exact HTTPS CDN hosts', () => {
@@ -90,11 +105,12 @@ describe('drama HTTP contracts (offline)', () => {
     assert.equal((await get('/api/dramas')).status, 502)
     failed = false
     const list = await (await get('/api/dramas')).json()
-    assert.equal(list.items[0].coverUrl, '/api/dramas/12/cover')
+    assert.equal(list.items[0].coverUrl, '/api/dramas/12/cover?source=huangguo')
+    assert.equal(list.items[0].source, 'huangguo')
     assert.equal(list.hasMore, true)
     assert.equal(list.total, 836)
     assert.equal((await (await get('/api/dramas/12')).json()).episodes[0].id, 'ep-2')
-    const cover = await get('/api/dramas/12/cover?url=https://127.0.0.1/')
+    const cover = await get('/api/dramas/12/cover?source=huangguo&url=https://127.0.0.1/')
     assert.equal(cover.headers.get('content-type'), 'image/png')
     assert.deepEqual(Buffer.from(await cover.arrayBuffer()), png)
   })
@@ -126,6 +142,70 @@ describe('drama HTTP contracts (offline)', () => {
     assert.equal((await get('/api/dramas/12/episodes/2/resolve', { method: 'POST' })).status, 400)
     config.sitePassword = 'synthetic-test-password'
     try { assert.equal((await get('/api/dramas')).status, 401) } finally { config.sitePassword = '' }
+  })
+
+  it('serves the qce source through ?source=qce with category paging and signed resolve', async (t) => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46])
+    const drama = {
+      id: '640', title: '合成短剧', coverUrl: 'https://av.qce.me/cover/640',
+      category: '成人漫剧', badge: '18+', episodeCount: 2, description: '',
+    }
+    const signed = 'https://av.qce.me/hls/2431/index.m3u8?s=%2Fb&e=1792290117'
+    const seen = []
+    t.mock.method(globalThis, 'fetch', (url, options) => {
+      const parsed = new URL(url)
+      if (parsed.pathname === '/health') return Promise.resolve(Response.json({ ok: true }))
+      assert.equal(parsed.pathname, '/scrape/qce')
+      const body = JSON.parse(options.body)
+      seen.push(body)
+      if (body.mode === 'list') {
+        assert.equal(body.category, '成人漫剧')
+        assert.equal(body.page, 2)
+        return Promise.resolve(Response.json({
+          ok: true, items: [drama], page: 2, pageSize: 24, hasMore: true, total: 330,
+          categories: [{ name: '成人漫剧', count: 330 }], category: '成人漫剧',
+        }))
+      }
+      if (body.mode === 'detail') {
+        return Promise.resolve(Response.json({
+          ok: true, drama,
+          episodes: [
+            { id: 'ep-1', number: 1, title: '第 1 集', url: 'https://av.qce.me/hls/2430/index.m3u8?s=a&e=1' },
+            { id: 'ep-2', number: 2, title: '第 2 集', url: signed },
+          ],
+        }))
+      }
+      if (body.mode === 'resolve') return Promise.resolve(Response.json({ ok: true, url: signed, type: 'hls' }))
+      assert.equal(body.mode, 'cover')
+      assert.equal(body.id, '640')
+      return Promise.resolve(Response.json({ ok: true, base64: jpeg.toString('base64') }))
+    })
+
+    const list = await (await get('/api/dramas?source=qce&category=' + encodeURIComponent('成人漫剧') + '&page=2')).json()
+    assert.equal(list.total, 330)
+    assert.equal(list.categories[0].count, 330)
+    assert.equal(list.items[0].source, 'qce')
+    assert.equal(list.items[0].coverUrl, '/api/dramas/640/cover?source=qce')
+
+    const cover = await get('/api/dramas/640/cover?source=qce')
+    assert.equal(cover.headers.get('content-type'), 'image/jpeg')
+    assert.deepEqual(Buffer.from(await cover.arrayBuffer()), jpeg)
+
+    const detail = await (await get('/api/dramas/640?source=qce')).json()
+    assert.equal(detail.episodes.length, 2)
+    assert.equal('url' in detail.episodes[0], false)
+
+    const stream = await (await get('/api/dramas/640/episodes/ep-2/resolve?source=qce', { method: 'POST' })).json()
+    assert.equal(stream.source, 'qce')
+    assert.equal(stream.url, '/api/hls?url=' + encodeURIComponent(signed))
+    assert.deepEqual(seen.filter((b) => b.mode !== 'cover').at(-1), { id: '640', episode: 2, mode: 'resolve' })
+  })
+
+  it('rejects unknown drama sources and oversized category values', async () => {
+    for (const url of ['/api/dramas?source=nope', '/api/dramas/12?source=nope',
+      '/api/dramas?category=' + 'x'.repeat(41)]) {
+      assert.equal((await get(url)).status, 400)
+    }
   })
 
   for (const host of mediaCdns) it(`rewrites and fetches AES HLS keys and segments on ${host} without changing signed queries`, async (t) => {

@@ -22,6 +22,7 @@ except ImportError:
 
 from curl_opts import CURL_OPTS  # type: ignore
 from huangguo import MEDIA_HOSTS as HUANGGUO_HOSTS, fetch_source, valid_url
+from qce import HOST as QCE_HOST, fetch as qce_fetch, valid_url as qce_valid
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8790
 # Session.get() does not accept curl_options; configure the reusable session once.
@@ -54,6 +55,8 @@ def allowed(url: str) -> bool:
         host = host.lower()
         if host in HUANGGUO_HOSTS:
             return valid_url(url, "media")
+        if host == QCE_HOST:
+            return qce_valid(url, "media")
         return any(host == s or host.endswith("." + s) for s in ALLOW_SUFFIXES)
     except Exception:
         return False
@@ -62,6 +65,8 @@ def allowed(url: str) -> bool:
 def _fetch_upstream(url: str, *, stream: bool = False, range_header: str | None = None):
     if urlparse(url).hostname in HUANGGUO_HOSTS:
         return fetch_source(url, "media", stream=stream, range_header=range_header)
+    if urlparse(url).hostname == QCE_HOST:
+        return qce_fetch(url, "media", stream=stream)
     headers = dict(HEADERS)
     if urlparse(url).hostname == "v.hersav.me":
         headers.update({"Referer": "https://whos.tv/", "Origin": "https://whos.tv"})

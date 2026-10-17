@@ -318,6 +318,14 @@ export function pyHuangguo(mode, opts = {}) {
   )
 }
 
+/** av.qce.me public short-drama site (catalog JSON + signed HLS). */
+export function pyQce(mode, opts = {}) {
+  const body = { ...opts, mode }
+  return withWorker('/scrape/qce', body, () =>
+    runPython('qce.py', [JSON.stringify(body)], { timeoutMs: 60000 }),
+  )
+}
+
 /** External Chinese-subtitle lookup — see subtitles.py (SUB-01). */
 export function pySubtitleSearch(code, durationSec = 0) {
   const c = String(code || '').trim()

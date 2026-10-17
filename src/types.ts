@@ -165,6 +165,8 @@ export interface VideoFilterOptions {
   sorts: FilterOption[]
 }
 
+export type DramaSource = 'qce' | 'huangguo'
+
 export interface DramaSummary {
   id: string
   title: string
@@ -172,10 +174,23 @@ export interface DramaSummary {
   description?: string
   episodeCount?: number | null
   status?: 'ongoing' | 'completed'
+  /** Catalog provider that served this row. */
+  source?: DramaSource
+  /** Provider category label (e.g. 成人漫剧 / AI短剧). */
+  category?: string
+  /** Provider badge (e.g. 18+ / 漫剧). */
+  badge?: string
+}
+
+export interface DramaCategory {
+  name: string
+  count: number
 }
 
 export interface DramaList extends PagedResult<DramaSummary> {
   hasMore: boolean
+  categories?: DramaCategory[]
+  category?: string
 }
 
 export interface DramaDetail {
@@ -186,6 +201,7 @@ export interface DramaDetail {
 export interface DramaStream {
   url: string
   type: 'hls' | 'mp4'
+  source?: DramaSource
 }
 
 export type Locale = 'zh' | 'en'

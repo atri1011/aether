@@ -5,25 +5,64 @@ import { api } from '../lib/api'
 import { usePageQuery } from '../hooks/usePageQuery'
 import { PagePager } from '../components/PagePager'
 import { Player } from '../components/Player'
-import type { DramaDetail, DramaList, DramaStream, DramaSummary } from '../types'
+import type {
+  DramaCategory,
+  DramaDetail,
+  DramaList,
+  DramaSource,
+  DramaStream,
+  DramaSummary,
+} from '../types'
+
+const SOURCE_LABEL: Record<DramaSource, string> = {
+  qce: 'QCE',
+  huangguo: 'HUANGGUO',
+}
+
+function readSource(params: URLSearchParams): DramaSource {
+  return params.get('source') === 'huangguo' ? 'huangguo' : 'qce'
+}
 
 function DramaPoster({ drama }: { drama: DramaSummary }) {
   const [failed, setFailed] = useState(false)
+  const label = drama.badge || drama.category || SOURCE_LABEL[drama.source ?? 'qce']
   return (
     <div className="drama-poster">
       <span className="drama-poster-fallback" aria-hidden="true">{drama.title.slice(0, 1)}</span>
       {drama.coverUrl && !failed && (
         <img src={drama.coverUrl} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />
       )}
-      <span className="drama-poster-label">HUANGGUO</span>
+      <span className="drama-poster-label">{label}</span>
+    </div>
+  )
+}
+
+function SourceTabs({ source, onChange }: { source: DramaSource; onChange: (next: DramaSource) => void }) {
+  return (
+    <div className="drama-source-tabs" role="tablist" aria-label="drama source">
+      {(['qce', 'huangguo'] as DramaSource[]).map((key) => (
+        <button
+          key={key}
+          type="button"
+          role="tab"
+          aria-selected={source === key}
+          className={`drama-source-tab${source === key ? ' is-active' : ''}`}
+          onClick={() => onChange(key)}
+        >
+          {SOURCE_LABEL[key]}
+        </button>
+      ))}
     </div>
   )
 }
 
 export function DramasPage() {
   const { locale, tr } = useLocale()
-  const { page, setPage } = usePageQuery()
+  const [params, setParams] = useSearchParams()
   const location = useLocation()
+  const source = readSource(params)
+  const category = params.get('category') ?? ''
+  const { page, setPage } = usePageQuery()
   const [data, setData] = useState<DramaList | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -34,12 +73,39 @@ export function DramasPage() {
     setLoading(true)
     setError(null)
     setData(null)
-    api.dramas(locale, page, { signal: ac.signal })
+    api.dramas(locale, page, { source, category, signal: ac.signal })
       .then((result) => { if (!ac.signal.aborted) setData(result) })
       .catch((e: Error) => { if (!ac.signal.aborted) setError(e.message) })
       .finally(() => { if (!ac.signal.aborted) setLoading(false) })
     return () => ac.abort()
-  }, [locale, page, attempt])
+  }, [locale, page, attempt, source, category])
+
+  const categories: DramaCategory[] = data?.categories ?? []
+  // `total` narrows with the active category; the "all" chip needs the catalog sum.
+  const catalogTotal = categories.reduce((sum, item) => sum + (item.count || 0), 0) || data?.total || 0
+
+  const setSource = (next: DramaSource) => {
+    setParams((prev) => {
+      const p = new URLSearchParams(prev)
+      if (next === 'qce') p.delete('source')
+      else p.set('source', next)
+      p.delete('category')
+      p.delete('page')
+      return p
+    }, { state: location.state })
+  }
+
+  const setCategory = (next: string) => {
+    setParams((prev) => {
+      const p = new URLSearchParams(prev)
+      if (!next) p.delete('category')
+      else p.set('category', next)
+      p.delete('page')
+      return p
+    }, { state: location.state })
+  }
+
+  const linkState = { from: location.pathname + location.search }
 
   return (
     <div className="page dramas-page">
@@ -49,10 +115,38 @@ export function DramasPage() {
           <h1 className="page-title">{tr('dramas')}</h1>
           <p className="page-sub">{tr('dramasSub')}</p>
         </div>
-        <span className="drama-source-label">{tr('dramaSource')}</span>
+        <div className="drama-source-block">
+          <SourceTabs source={source} onChange={setSource} />
+          <span className="drama-source-label">
+            {tr('dramaSource')} · {SOURCE_LABEL[source]}
+          </span>
+        </div>
       </header>
+      {categories.length > 0 && (
+        <div className="drama-category-bar" role="group" aria-label={tr('dramaCategories')}>
+          <button
+            type="button"
+            className={`drama-chip${category ? '' : ' is-active'}`}
+            aria-pressed={!category}
+            onClick={() => setCategory('')}
+          >
+            {tr('dramaAll')} <span>{catalogTotal}</span>
+          </button>
+          {categories.map((item) => (
+            <button
+              key={item.name}
+              type="button"
+              className={`drama-chip${category === item.name ? ' is-active' : ''}`}
+              aria-pressed={category === item.name}
+              onClick={() => setCategory(item.name)}
+            >
+              {item.name} <span>{item.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="drama-list-heading">
-        <h2>{tr('dramaHot')}</h2>
+        <h2>{category || (source === 'qce' ? tr('dramaLatest') : tr('dramaHot'))}</h2>
         <span>{tr('dramaPage')} {String(page).padStart(2, '0')}</span>
       </div>
       {error && (
@@ -68,8 +162,9 @@ export function DramasPage() {
       ) : data?.items.length ? (
         <div className="drama-grid">
           {data.items.map((drama) => (
-            <Link className="drama-card" key={drama.id} to={`/dramas/${encodeURIComponent(drama.id)}`}
-              state={{ from: location.pathname + location.search }}>
+            <Link className="drama-card" key={`${source}:${drama.id}`}
+              to={`/dramas/${encodeURIComponent(drama.id)}${source === 'huangguo' ? '?source=huangguo' : ''}`}
+              state={linkState}>
               <DramaPoster key={`${drama.id}:${drama.coverUrl}`} drama={drama} />
               <div className="drama-card-meta">
                 <h3>{drama.title}</h3>
@@ -87,10 +182,11 @@ export function DramasPage() {
   )
 }
 
-function DramaEpisodePlayer({ id, episode, poster, theatre, onToggleTheatre }: {
+function DramaEpisodePlayer({ id, episode, poster, source, theatre, onToggleTheatre }: {
   id: string
   episode: string
   poster: string
+  source: DramaSource
   theatre: boolean
   onToggleTheatre: () => void
 }) {
@@ -110,12 +206,12 @@ function DramaEpisodePlayer({ id, episode, poster, theatre, onToggleTheatre }: {
     setLoading(true)
     setError(null)
     setStream(null)
-    api.dramaStream(id, episode, locale, { signal: ac.signal })
+    api.dramaStream(id, episode, locale, { source, signal: ac.signal })
       .then((result) => { if (!ac.signal.aborted) setStream(result) })
       .catch((e: Error) => { if (!ac.signal.aborted) setError(e.message) })
       .finally(() => { if (!ac.signal.aborted) setLoading(false) })
     return () => ac.abort()
-  }, [id, episode, locale, attempt])
+  }, [id, episode, locale, attempt, source])
 
   return (
     <>
@@ -143,12 +239,15 @@ export function DramaWatchPage() {
   const { locale, tr } = useLocale()
   const [params, setParams] = useSearchParams()
   const { state } = useLocation()
+  const source = readSource(params)
   const [data, setData] = useState<DramaDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [theatre, setTheatre] = useState(false)
-  const from = typeof state?.from === 'string' && /^\/dramas(?:\?|$)/.test(state.from) ? state.from : '/dramas'
+  const from = typeof state?.from === 'string' && /^\/dramas(?:\?|$)/.test(state.from)
+    ? state.from
+    : (source === 'huangguo' ? '/dramas?source=huangguo' : '/dramas')
 
   useEffect(() => {
     const ac = new AbortController()
@@ -156,12 +255,12 @@ export function DramaWatchPage() {
     setError(null)
     setData(null)
     setTheatre(false)
-    api.drama(id, locale, { signal: ac.signal })
+    api.drama(id, locale, { source, signal: ac.signal })
       .then((result) => { if (!ac.signal.aborted) setData(result) })
       .catch((e: Error) => { if (!ac.signal.aborted) setError(e.message) })
       .finally(() => { if (!ac.signal.aborted) setLoading(false) })
     return () => ac.abort()
-  }, [id, locale, attempt])
+  }, [id, locale, attempt, source])
 
   const requested = params.get('episode')
   const selected = requested ? data?.episodes.find((ep) => ep.id === requested) : data?.episodes[0]
@@ -185,14 +284,18 @@ export function DramaWatchPage() {
       {!loading && data && data.drama.id === id && <>
         <header className="page-head drama-watch-head">
           <div>
-            <p className="page-kicker">{tr('dramaSource')}</p>
+            <p className="page-kicker">{tr('dramaSource')} · {SOURCE_LABEL[source]}</p>
             <h1 className="page-title">{data.drama.title}</h1>
+            {(data.drama.category || data.drama.badge) && <p className="page-sub">
+              {[data.drama.category, data.drama.badge].filter(Boolean).join(' · ')}
+            </p>}
           </div>
         </header>
         <div className="drama-watch-layout">
           <div className="drama-screen">
-            {selected ? <DramaEpisodePlayer key={`${id}:${selected.id}`} id={id} episode={selected.id}
-              poster={data.drama.coverUrl} theatre={theatre} onToggleTheatre={() => setTheatre((v) => !v)} />
+            {selected ? <DramaEpisodePlayer key={`${source}:${id}:${selected.id}`} id={id} episode={selected.id}
+              poster={data.drama.coverUrl} source={source} theatre={theatre}
+              onToggleTheatre={() => setTheatre((v) => !v)} />
               : <div className="state-block">{tr(data.episodes.length ? 'dramaChoose' : 'dramaNoEpisodes')}</div>}
             {selected && <div className="drama-episode-bar">
               <span>{tr('dramaEpisode')} · {selected.title}</span>

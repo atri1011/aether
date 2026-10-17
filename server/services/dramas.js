@@ -1,6 +1,6 @@
 import { createDecipheriv } from 'node:crypto'
 import { cacheGet, cacheSet } from '../cache.js'
-import { pyHuangguo } from '../pybridge.js'
+import { pyHuangguo, pyQce } from '../pybridge.js'
 import { withCache } from './cacheWrap.js'
 
 const COVER_HOSTS = new Set(['pic.wirqed.cn', 'pic.drleao.cn'])
@@ -14,8 +14,28 @@ const MEDIA_HOSTS = new Set([
   'tp1.drleao.cn', 'tp2.drleao.cn', 'tp3.drleao.cn', 'tp4.drleao.cn',
   'tp5.drleao.cn', 'tp6.drleao.cn', 'tp7.drleao.cn', 'tp8.drleao.cn',
 ])
+const QCE_HOST = 'av.qce.me'
 const MAX_IMAGE = 8 * 1024 * 1024
-const summaryKey = (id) => `dramas:huangguo:summary:v1:${id}`
+
+/**
+ * Drama sources. `huangguo` stays the API default for contract compatibility;
+ * the web UI opens on `qce` (see src/pages/DramasPage.tsx).
+ */
+export const DRAMA_SOURCES = new Map([
+  ['huangguo', { bridge: pyHuangguo }],
+  ['qce', { bridge: pyQce }],
+])
+export const DEFAULT_SOURCE = 'huangguo'
+
+export function normalizeSource(raw) {
+  const value = raw == null || raw === '' ? DEFAULT_SOURCE : String(raw).toLowerCase()
+  if (!DRAMA_SOURCES.has(value)) {
+    throw Object.assign(new Error('Unknown drama source'), { code: 'CONFIG' })
+  }
+  return value
+}
+
+const summaryKey = (source, id) => `dramas:${source}:summary:v1:${id}`
 
 export function isHuangguoUrl(raw, kind = 'media') {
   try {
@@ -30,11 +50,41 @@ export function isHuangguoUrl(raw, kind = 'media') {
   }
 }
 
+/** av.qce.me signed playlists/keys/segments live under /hls/, posters under /cover/. */
+export function isQceUrl(raw, kind = 'media') {
+  try {
+    const u = new URL(raw)
+    // oxlint-disable-next-line no-control-regex
+    if (typeof raw !== 'string' || raw.length > 8192 || /[\s\x00-\x1f]/.test(raw)) return false
+    if (u.protocol !== 'https:' || u.hostname !== QCE_HOST) return false
+    if (u.username || u.password || u.port || u.hash) return false
+    if (kind === 'cover') return u.pathname.startsWith('/cover/')
+    return u.pathname.startsWith('/hls/')
+  } catch {
+    return false
+  }
+}
+
+/** Any allow-listed drama media host (used by the HLS proxy allow-list). */
+export function isDramaMediaUrl(raw) {
+  return isHuangguoUrl(raw, 'media') || isQceUrl(raw, 'media')
+}
+
 export function dramaNumber(raw, maximum = 999999999999) {
   if (typeof raw !== 'string' || !/^[1-9]\d*$/.test(raw) || Number(raw) > maximum) {
     throw Object.assign(new Error('Invalid drama identifier or page'), { code: 'CONFIG' })
   }
   return Number(raw)
+}
+
+export function dramaCategory(raw) {
+  if (raw == null || raw === '') return ''
+  const value = String(raw).trim()
+  // oxlint-disable-next-line no-control-regex
+  if (!value || value.length > 40 || /[\x00-\x1f]/.test(value)) {
+    throw Object.assign(new Error('Invalid drama category'), { code: 'CONFIG' })
+  }
+  return value
 }
 
 function imageType(b) {
@@ -67,64 +117,102 @@ export function decodeHuangguoImage(input) {
   return { buffer, type }
 }
 
-async function source(mode, options) {
-  const data = await pyHuangguo(mode, options)
+async function source(sourceName, mode, options) {
+  const entry = DRAMA_SOURCES.get(sourceName)
+  if (!entry) throw Object.assign(new Error('Unknown drama source'), { code: 'CONFIG' })
+  const data = await entry.bridge(mode, options)
   if (!data?.ok) {
-    throw Object.assign(new Error(data?.error || 'Huangguo source unavailable'), { code: data?.code || 'UPSTREAM' })
+    throw Object.assign(new Error(data?.error || 'Drama source unavailable'), { code: data?.code || 'UPSTREAM' })
   }
   const { ok: _ok, ...result } = data
   return result
 }
 
-function publicSummary(drama) {
-  return { ...drama, coverUrl: drama.coverUrl ? `/api/dramas/${drama.id}/cover` : '' }
+function publicSummary(sourceName, drama) {
+  // Covers always go through the same-origin proxy (huangguo posters are
+  // AES-framed, qce posters stay hotlink-free behind the site gate).
+  const coverUrl = drama?.coverUrl ? `/api/dramas/${drama.id}/cover?source=${sourceName}` : ''
+  return { ...drama, source: sourceName, coverUrl }
 }
 
-async function remember(drama) {
+async function remember(sourceName, drama) {
   // Never let a rotated cover CDN fail the whole list/detail response:
   // drop just the cover and keep the row visible.
-  if (drama?.coverUrl && !isHuangguoUrl(drama.coverUrl, 'cover')) drama.coverUrl = ''
-  await cacheSet(summaryKey(drama.id), drama, 3600 * 1000)
+  if (drama?.coverUrl) {
+    const ok = sourceName === 'qce' ? isQceUrl(drama.coverUrl, 'cover') : isHuangguoUrl(drama.coverUrl, 'cover')
+    if (!ok) drama.coverUrl = ''
+  }
+  await cacheSet(summaryKey(sourceName, drama.id), drama, 3600 * 1000)
 }
 
-export async function listDramas(page) {
-  const result = await withCache(`dramas:huangguo:list:v1:${page}`, 300 * 1000, async () => {
-    const data = await source('list', { page })
-    await Promise.all(data.items.map(remember))
-    return data
+export async function listDramas(page, sourceName = DEFAULT_SOURCE, category = '') {
+  const result = await withCache(
+    `dramas:${sourceName}:list:v2:${category}:${page}`,
+    300 * 1000,
+    async () => {
+      const data = await source(sourceName, 'list', category ? { page, category } : { page })
+      await Promise.all((data.items || []).map((d) => remember(sourceName, d)))
+      return { ...data, categories: data.categories || [], category: data.category || '' }
+    },
+  )
+  return {
+    ...result,
+    data: { ...result.data, items: result.data.items.map((d) => publicSummary(sourceName, d)) },
+  }
+}
+
+async function rawDetail(sourceName, id) {
+  return withCache(`dramas:${sourceName}:detail:v1:${id}`, 600 * 1000, async () => {
+    const data = await source(sourceName, 'detail', { id })
+    await remember(sourceName, data.drama)
+    // Signed episode URLs never leave the server; /resolve hands them out on demand.
+    const episodes = (data.episodes || []).map(({ url: _url, ...rest }) => rest)
+    return { ...data, episodes }
   })
-  return { ...result, data: { ...result.data, items: result.data.items.map(publicSummary) } }
 }
 
-async function rawDetail(id) {
-  return withCache(`dramas:huangguo:detail:v1:${id}`, 600 * 1000, async () => {
-    const data = await source('detail', { id })
-    await remember(data.drama)
-    return data
-  })
+export async function dramaDetail(id, sourceName = DEFAULT_SOURCE) {
+  const result = await rawDetail(sourceName, id)
+  return { ...result, data: { ...result.data, drama: publicSummary(sourceName, result.data.drama) } }
 }
 
-export async function dramaDetail(id) {
-  const result = await rawDetail(id)
-  return { ...result, data: { ...result.data, drama: publicSummary(result.data.drama) } }
-}
-
-export async function dramaCover(id) {
-  const result = await withCache(`dramas:huangguo:cover:v1:${id}`, 3600 * 1000, async () => {
-    const drama = await cacheGet(summaryKey(id)) || (await rawDetail(id)).data.drama
-    if (!drama.coverUrl) throw Object.assign(new Error('Cover unavailable'), { code: 'NOT_FOUND' })
-    if (!isHuangguoUrl(drama.coverUrl, 'cover')) throw new Error('Unsupported cover host')
-    const data = await source('cover', { url: drama.coverUrl })
-    if (typeof data.base64 !== 'string' || data.base64.length > Math.ceil(MAX_IMAGE / 3) * 4) throw new Error('Invalid cover size')
-    const decoded = decodeHuangguoImage(Buffer.from(data.base64, 'base64'))
-    return { base64: decoded.buffer.toString('base64'), type: decoded.type }
-  }, { allowStale: false, swr: false })
+export async function dramaCover(id, sourceName = DEFAULT_SOURCE) {
+  const result = await withCache(
+    `dramas:${sourceName}:cover:v1:${id}`,
+    3600 * 1000,
+    async () => {
+      const drama = (await cacheGet(summaryKey(sourceName, id))) || (await rawDetail(sourceName, id)).data.drama
+      if (!drama.coverUrl) throw Object.assign(new Error('Cover unavailable'), { code: 'NOT_FOUND' })
+      if (sourceName === 'qce') {
+        if (!isQceUrl(drama.coverUrl, 'cover')) throw new Error('Unsupported cover host')
+        const data = await source(sourceName, 'cover', { id })
+        return upstreamCover(data)
+      }
+      if (!isHuangguoUrl(drama.coverUrl, 'cover')) throw new Error('Unsupported cover host')
+      const data = await source(sourceName, 'cover', { url: drama.coverUrl })
+      return upstreamCover(data)
+    },
+    { allowStale: false, swr: false },
+  )
   return { buffer: Buffer.from(result.data.base64, 'base64'), type: result.data.type }
 }
 
-export async function resolveDrama(id, episode) {
+/** qce posters are already JPEG/PNG; huangguo posters arrive AES-CBC framed. */
+function upstreamCover(data) {
+  if (typeof data.base64 !== 'string' || data.base64.length > Math.ceil(MAX_IMAGE / 3) * 4) {
+    throw new Error('Invalid cover size')
+  }
+  const raw = Buffer.from(data.base64, 'base64')
+  const plain = imageType(raw)
+  if (plain) return { base64: raw.toString('base64'), type: plain }
+  const decoded = decodeHuangguoImage(raw)
+  return { base64: decoded.buffer.toString('base64'), type: decoded.type }
+}
+
+export async function resolveDrama(id, episode, sourceName = DEFAULT_SOURCE) {
   // Signed URLs and entitlement errors must never be reused from stale cache.
-  const result = await source('resolve', { id, episode })
-  if (!isHuangguoUrl(result.url) || !['hls', 'mp4'].includes(result.type)) throw new Error('Unsupported playback source')
+  const result = await source(sourceName, 'resolve', { id, episode })
+  const allowed = sourceName === 'qce' ? isQceUrl(result.url, 'media') : isHuangguoUrl(result.url)
+  if (!allowed || !['hls', 'mp4'].includes(result.type)) throw new Error('Unsupported playback source')
   return { url: `/api/hls?url=${encodeURIComponent(result.url)}`, type: result.type }
 }
