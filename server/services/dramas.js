@@ -3,11 +3,16 @@ import { cacheGet, cacheSet } from '../cache.js'
 import { pyHuangguo } from '../pybridge.js'
 import { withCache } from './cacheWrap.js'
 
-const COVER_HOSTS = new Set(['pic.wirqed.cn'])
+const COVER_HOSTS = new Set(['pic.wirqed.cn', 'pic.drleao.cn'])
 const MEDIA_HOSTS = new Set([
+  // Previous rotation (kept: old dramas still resolve to these).
   'yd-hls.tktjpm.cn',
   'tp1.wirqed.cn', 'tp2.wirqed.cn', 'tp3.wirqed.cn', 'tp4.wirqed.cn',
   'tp5.wirqed.cn', 'tp6.wirqed.cn', 'tp7.wirqed.cn', 'tp8.wirqed.cn',
+  // Rotation observed 2026-10-18: playlist host + key/segment hosts.
+  'yd-hls.hzjvlo.cn',
+  'tp1.drleao.cn', 'tp2.drleao.cn', 'tp3.drleao.cn', 'tp4.drleao.cn',
+  'tp5.drleao.cn', 'tp6.drleao.cn', 'tp7.drleao.cn', 'tp8.drleao.cn',
 ])
 const MAX_IMAGE = 8 * 1024 * 1024
 const summaryKey = (id) => `dramas:huangguo:summary:v1:${id}`

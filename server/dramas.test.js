@@ -11,7 +11,10 @@ import { cacheL1Clear } from './cache.js'
 import { decodeHuangguoImage, isHuangguoUrl } from './services/dramas.js'
 import { isAllowedMediaUrl } from './hlsProxy.js'
 
-const mediaCdns = Array.from({ length: 8 }, (_, i) => `tp${i + 1}.wirqed.cn`)
+const mediaCdns = [
+  ...Array.from({ length: 8 }, (_, i) => `tp${i + 1}.wirqed.cn`),
+  ...Array.from({ length: 8 }, (_, i) => `tp${i + 1}.drleao.cn`),
+]
 const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.alloc(24)])
 function encrypt(bytes, padding = false) {
   const cipher = createCipheriv('aes-128-cbc', Buffer.from('f5d965df75336270'), Buffer.from('97b60394abc2fbe1'))
@@ -32,11 +35,16 @@ it('decodes only bounded public image framing using synthetic bytes', () => {
 })
 
 it('allows only verified exact HTTPS CDN hosts', () => {
-  for (const host of ['yd-hls.tktjpm.cn', ...mediaCdns]) assert.equal(isAllowedMediaUrl(`https://${host}/a`), true)
+  for (const host of ['yd-hls.tktjpm.cn', 'yd-hls.hzjvlo.cn', ...mediaCdns]) assert.equal(isAllowedMediaUrl(`https://${host}/a`), true)
   assert.equal(isHuangguoUrl('https://pic.wirqed.cn/a', 'cover'), true)
+  assert.equal(isHuangguoUrl('https://pic.drleao.cn/a', 'cover'), true)
   for (const url of ['https://x.tp3.wirqed.cn/a', 'http://tp3.wirqed.cn/a', 'https://tp3.wirqed.cn:444/a', 'https://user@tp3.wirqed.cn/a', 'https://cloudfront.net/a',
-    'https://x.tp6.wirqed.cn/a', 'https://tp6.wirqed.cn.evil.test/a', 'http://tp6.wirqed.cn/a', 'https://tp6.wirqed.cn:444/a', 'https://user@tp6.wirqed.cn/a', 'https://tp9.wirqed.cn/a']) {
+    'https://x.tp6.wirqed.cn/a', 'https://tp6.wirqed.cn.evil.test/a', 'http://tp6.wirqed.cn/a', 'https://tp6.wirqed.cn:444/a', 'https://user@tp6.wirqed.cn/a', 'https://tp9.wirqed.cn/a',
+    'https://sub.tp8.drleao.cn/a', 'https://tp8.drleao.cn.evil.test/a', 'https://user@tp8.drleao.cn/a', 'https://tp9.drleao.cn/a', 'https://pic.drleao.cn/a']) {
     assert.equal(isAllowedMediaUrl(url), false)
+  }
+  for (const url of ['https://pic.drleao.cn/a', 'https://user@pic.drleao.cn/a', 'http://pic.drleao.cn/a', 'https://sub.pic.drleao.cn/a']) {
+    assert.equal(isHuangguoUrl(url, 'cover'), url === 'https://pic.drleao.cn/a')
   }
 })
 

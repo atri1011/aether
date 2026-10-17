@@ -66,8 +66,13 @@ class HuangguoTest(unittest.TestCase):
         self.assertTrue(hg.valid_url(MEDIA, 'media'))
         for n in range(1, 9):
             self.assertTrue(hg.valid_url(f'https://tp{n}.wirqed.cn/crypt.key?auth_key=a%2Fb', 'media'))
+            self.assertTrue(hg.valid_url(f'https://tp{n}.drleao.cn/videos/x.ts?auth_key=a%2Fb', 'media'))
+        self.assertTrue(hg.valid_url('https://yd-hls.hzjvlo.cn/videos/x.m3u8?auth_key=a%2Fb', 'media'))
+        self.assertTrue(hg.valid_url('https://pic.drleao.cn/upload/a.jpg?auth_key=a', 'cover'))
         for url in ('http://tp6.wirqed.cn/a', 'https://sub.tp6.wirqed.cn/a', 'https://tp6.wirqed.cn.evil.test/a',
                     'https://tp6.wirqed.cn:444/a', 'https://user@tp6.wirqed.cn/a', 'https://tp9.wirqed.cn/a',
+                    'https://sub.tp8.drleao.cn/a', 'https://tp8.drleao.cn.evil.test/a', 'https://user@tp8.drleao.cn/a',
+                    'https://tp9.drleao.cn/a', 'http://pic.drleao.cn/a', 'https://sub.pic.drleao.cn/a',
                     'http://yd-hls.tktjpm.cn/a', 'https://evil.yd-hls.tktjpm.cn/a', 'https://yd-hls.tktjpm.cn:444/a',
                     'https://user@yd-hls.tktjpm.cn/a', 'https://127.0.0.1/a', 'https://cloudfront.net/a'):
             self.assertFalse(hg.valid_url(url, 'media'))
