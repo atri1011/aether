@@ -9,7 +9,6 @@
 }
 .drama-collection-head .page-title { font-size: clamp(2.5rem, 5vw, 4.6rem); letter-spacing: -.045em; }
 .drama-collection-head .page-sub { max-width: 36rem; }
-.drama-source-block { display: flex; flex-direction: column; align-items: flex-end; gap: .6rem; flex-shrink: 0; }
 .drama-source-label {
   flex-shrink: 0;
   border: 1px solid var(--line-strong);
@@ -18,15 +17,6 @@
   color: var(--ink-dim);
   font-size: .85rem;
 }
-.drama-source-tabs { display: inline-flex; padding: 3px; gap: 3px; border: 1px solid var(--line-strong); border-radius: var(--radius-pill); }
-.drama-source-tab {
-  border: 0; background: transparent; color: var(--ink-dim); cursor: pointer;
-  padding: .45rem .9rem; border-radius: var(--radius-pill);
-  font: inherit; font-size: .78rem; font-weight: 600; letter-spacing: .08em;
-  min-height: 34px; transition: background var(--dur-1), color var(--dur-1);
-}
-.drama-source-tab:hover { color: var(--ink); }
-.drama-source-tab.is-active { background: var(--accent-deep); color: var(--bg-elev); }
 .drama-category-bar { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.4rem 0 0; }
 .drama-chip {
   display: inline-flex; align-items: center; gap: .45rem;
@@ -80,7 +70,6 @@
 }
 @media (max-width: 600px) {
   .drama-collection-head { padding: 1rem 0 1.6rem; align-items: flex-start; flex-direction: column; gap: 1rem; }
-  .drama-source-block { align-items: flex-start; }
   .drama-category-bar { flex-wrap: nowrap; overflow-x: auto; padding-bottom: .4rem; scrollbar-width: none; }
   .drama-category-bar::-webkit-scrollbar { display: none; }
   .drama-chip { flex: 0 0 auto; }

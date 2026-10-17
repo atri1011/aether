@@ -190,7 +190,7 @@ curl -s http://127.0.0.1:8787/api/health
 |------|------|
 | `/` | HomePage |
 | `/browse` | BrowsePage |
-| `/dramas` | DramasPage：多源短剧库（QCE / 黄果），分类 chip + 手动分页 |
+| `/dramas` | DramasPage：多源短剧库（侧边栏 AI 短剧子标签切换 QCE / 黄果），分类 chip + 手动分页 |
 | `/dramas/:id?episode=ep-N` | DramaWatchPage：详情、选集与同源播放 |
 | `/search` | SearchPage |
 | `/actresses`、`/actresses/ranking` | ActressesPage |
@@ -376,6 +376,7 @@ Xunlei oracle（人工上传 SRT，主源）与 SubtitleCat（机器翻译 HTML 
   - `GET /api/drama/<id>` → `eps[{ep,url}]`，`url` 是带 `s`/`e` 签名的 m3u8 相对路径
   - `GET /cover/<id>` → 原始 JPEG/PNG（**不解码**，与黄果的 AES 封面不同）
   - `GET /hls/<n>/index.m3u8?s=..&e=..` / `key` / `*.ts` → AES-128，密钥与分片同源
+- 源切换在**侧边栏**：「AI 短剧」是分组（和「观看 JAV」同构），子标签 `QCE 短剧`（`/dramas`）与 `黄果短剧`（`/dramas?source=huangguo`）。`NavLeaf.query` + `navLeafActive()` 让同一路径的两个标签按 `source` 精确高亮，`navPathActive()` 仍负责分组点灯与详情页 `/dramas/:id` 的激活态（详情页只点亮分组、不选中具体源）。
 - 分类：`?category=` 透传站点 `categories[].name`（成人漫剧 330 / AI短剧 196 / 擦边短剧 117），`dramaCategory()` 限制长度 ≤40 并拒绝控制字符；缓存 key 含分类，`dramas:qce:list:v2:<category>:<page>`。
 - 播放：`resolve` 只取当前请求的 `ep`（不跨集回退），返回 `/api/hls?url=...`；HLS 代理白名单新增 `isQceUrl` —— 仅 `https://av.qce.me` 的 `/hls/` 前缀（封面仅 `/cover/`），拒绝子域、端口、userinfo、fragment 与控制字符。媒体 worker / `fetch_media.py` 同步放行并保持 `stream=True`，否则 `fetch_stream` 会返回 0 字节。
 - 空集：站点里 AI短剧 / 擦边短剧 的 `eps` 目前为空（仅 `episodes` 计数），详情照常返回 0 集，前端显示「源站暂未提供可播放分集」；成人漫剧 330 部全部有 `eps`。

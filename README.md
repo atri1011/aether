@@ -37,9 +37,9 @@ npm run dev
 
 ## AI short dramas
 
-- Open **AI 短剧 / AI Dramas** in the navigation (`/dramas`). Two public catalogs are wired in and switchable in the header:
-  - **QCE** (`av.qce.me`, default) — full catalog with category chips (成人漫剧 / AI短剧 / 擦边短剧), newest-first, 24 per page.
-  - **HUANGGUO** (`huangguoai.com` `ai-duanju`) — popularity order, 24 per page.
+- Open **AI 短剧 / AI Dramas** in the navigation (`/dramas`). The sidebar entry is a group whose sub-tabs switch the source (same pattern as **观看 JAV**):
+  - **QCE 短剧** → `/dramas` (`av.qce.me`, default) — full catalog with category chips (成人漫剧 / AI短剧 / 擦边短剧), newest-first, 24 per page.
+  - **黄果短剧** → `/dramas?source=huangguo` (`huangguoai.com` `ai-duanju`) — popularity order, 24 per page.
   - `?source=qce|huangguo&category=<name>&page=N` are the URL knobs; `/api/dramas` defaults to `huangguo` so existing clients keep working.
 - `/dramas/:id?episode=ep-N` supports episode selection, previous/next episode, retry, theatre mode and fullscreen. Back to library preserves the originating page.
 - Covers are decoded server-side via `/api/dramas/:id/cover`. HLS and native MP4 both use the existing same-origin `/api/hls` proxy and access gate.

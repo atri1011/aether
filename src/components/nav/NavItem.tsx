@@ -1,7 +1,7 @@
 import { useRef } from 'react'
-import { NavLink } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import type { NavLeaf } from '../../nav/navConfig'
-import { navTitle } from '../../nav/navConfig'
+import { navLeafActive, navTitle } from '../../nav/navConfig'
 import { useLocale } from '../../context'
 import { NavIcon } from './NavIcon'
 import { api } from '../../lib/api'
@@ -26,6 +26,7 @@ function categorySlugFromTo(to: string): string | null {
 
 export function NavItem({ item, nested = false, onNavigate }: Props) {
   const { locale } = useLocale()
+  const location = useLocation()
   const warmed = useRef(false)
 
   const warm = () => {
@@ -36,13 +37,15 @@ export function NavItem({ item, nested = false, onNavigate }: Props) {
     api.prefetchCategory(slug, locale, { sort: defaultSortForCategory(slug) })
   }
 
+  // Sibling tabs can share one path (/dramas?source=…), so the item's own
+  // `query` constraint decides which one is current.
+  const active = navLeafActive(item, location)
+
   return (
-    <NavLink
+    <Link
       to={item.to}
-      end={item.end}
-      className={({ isActive }) =>
-        `nav-link${nested ? ' nested' : ''}${isActive ? ' active' : ''}`
-      }
+      className={`nav-link${nested ? ' nested' : ''}${active ? ' active' : ''}`}
+      aria-current={active ? 'page' : undefined}
       onClick={onNavigate}
       onMouseEnter={warm}
       onFocus={warm}
@@ -51,6 +54,6 @@ export function NavItem({ item, nested = false, onNavigate }: Props) {
     >
       {item.icon ? <NavIcon name={item.icon} /> : nested ? <span className="nav-dot" /> : null}
       <span className="nav-label">{navTitle(item, locale)}</span>
-    </NavLink>
+    </Link>
   )
 }

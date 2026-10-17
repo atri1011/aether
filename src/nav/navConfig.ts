@@ -29,6 +29,11 @@ export type NavLeaf = {
   icon?: NavIconName
   /** Match ranking / nested paths */
   end?: boolean
+  /**
+   * Extra query-string constraint for shared paths (e.g. /dramas?source=huangguo).
+   * '' means the parameter must be absent/empty.
+   */
+  query?: Record<string, string>
 }
 
 export type NavGroup = {
@@ -64,12 +69,28 @@ export const NAV: NavEntry[] = [
     icon: 'browse',
   },
   {
-    type: 'link',
+    type: 'group',
     id: 'ai-dramas',
     titleZh: 'AI 短剧',
     titleEn: 'AI Dramas',
-    to: '/dramas',
     icon: 'topics',
+    defaultOpen: true,
+    children: [
+      {
+        id: 'dramas-qce',
+        titleZh: 'QCE 短剧',
+        titleEn: 'QCE dramas',
+        to: '/dramas',
+        query: { source: '' },
+      },
+      {
+        id: 'dramas-huangguo',
+        titleZh: '黄果短剧',
+        titleEn: 'Huangguo dramas',
+        to: '/dramas?source=huangguo',
+        query: { source: 'huangguo' },
+      },
+    ],
   },
   {
     type: 'group',
@@ -337,4 +358,37 @@ export const NAV: NavEntry[] = [
 
 export function navTitle(entry: { titleZh: string; titleEn: string }, locale: string) {
   return locale === 'en' ? entry.titleEn : entry.titleZh
+}
+
+/** Path (without query) a leaf navigates to. */
+function leafPath(to: string) {
+  const cut = to.indexOf('?')
+  return cut === -1 ? to : to.slice(0, cut)
+}
+
+/** Path match only — ignores search, so sub-tabs on one path never clash. */
+export function navPathActive(pathname: string, to: string, end?: boolean) {
+  const target = leafPath(to)
+  if (end) return pathname === target
+  if (target === '/') return pathname === '/'
+  return pathname === target || pathname.startsWith(`${target}/`)
+}
+
+/**
+ * Full match for a leaf: path plus the optional `query` constraint that tells
+ * apart sibling tabs sharing one path (e.g. /dramas?source=qce|huangguo).
+ */
+export function navLeafActive(
+  leaf: NavLeaf,
+  location: { pathname: string; search: string },
+) {
+  if (!leaf.query) return navPathActive(location.pathname, leaf.to, leaf.end)
+  // Tabs that split one path by query only claim the path itself, so detail
+  // pages (/dramas/:id) light the group without pretending a source is chosen.
+  if (location.pathname !== leafPath(leaf.to)) return false
+  const params = new URLSearchParams(location.search)
+  return Object.entries(leaf.query).every(([key, value]) => {
+    const current = params.get(key) ?? ''
+    return value === '' ? current === '' : current === value
+  })
 }

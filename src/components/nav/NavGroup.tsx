@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import type { NavGroup as NavGroupType } from '../../nav/navConfig'
-import { navTitle } from '../../nav/navConfig'
+import { navLeafActive, navPathActive, navTitle } from '../../nav/navConfig'
 import { useLocale } from '../../context'
 import { NavIcon } from './NavIcon'
 import { NavItem } from './NavItem'
@@ -11,19 +11,14 @@ type Props = {
   onNavigate?: () => void
 }
 
-function pathActive(pathname: string, to: string, end?: boolean) {
-  if (end) return pathname === to
-  if (to === '/') return pathname === '/'
-  return pathname === to || pathname.startsWith(`${to}/`)
-}
-
 export function NavGroup({ group, onNavigate }: Props) {
   const { locale } = useLocale()
   const location = useLocation()
 
   const childActive = useMemo(
-    () => group.children.some((c) => pathActive(location.pathname, c.to, c.end)),
-    [group.children, location.pathname],
+    () => group.children.some((c) => navLeafActive(c, location) ||
+      navPathActive(location.pathname, c.to, c.end)),
+    [group.children, location],
   )
 
   const [open, setOpen] = useState(() => Boolean(group.defaultOpen) || childActive)

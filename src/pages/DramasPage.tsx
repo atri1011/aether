@@ -37,25 +37,6 @@ function DramaPoster({ drama }: { drama: DramaSummary }) {
   )
 }
 
-function SourceTabs({ source, onChange }: { source: DramaSource; onChange: (next: DramaSource) => void }) {
-  return (
-    <div className="drama-source-tabs" role="tablist" aria-label="drama source">
-      {(['qce', 'huangguo'] as DramaSource[]).map((key) => (
-        <button
-          key={key}
-          type="button"
-          role="tab"
-          aria-selected={source === key}
-          className={`drama-source-tab${source === key ? ' is-active' : ''}`}
-          onClick={() => onChange(key)}
-        >
-          {SOURCE_LABEL[key]}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 export function DramasPage() {
   const { locale, tr } = useLocale()
   const [params, setParams] = useSearchParams()
@@ -84,17 +65,6 @@ export function DramasPage() {
   // `total` narrows with the active category; the "all" chip needs the catalog sum.
   const catalogTotal = categories.reduce((sum, item) => sum + (item.count || 0), 0) || data?.total || 0
 
-  const setSource = (next: DramaSource) => {
-    setParams((prev) => {
-      const p = new URLSearchParams(prev)
-      if (next === 'qce') p.delete('source')
-      else p.set('source', next)
-      p.delete('category')
-      p.delete('page')
-      return p
-    }, { state: location.state })
-  }
-
   const setCategory = (next: string) => {
     setParams((prev) => {
       const p = new URLSearchParams(prev)
@@ -115,12 +85,9 @@ export function DramasPage() {
           <h1 className="page-title">{tr('dramas')}</h1>
           <p className="page-sub">{tr('dramasSub')}</p>
         </div>
-        <div className="drama-source-block">
-          <SourceTabs source={source} onChange={setSource} />
-          <span className="drama-source-label">
-            {tr('dramaSource')} · {SOURCE_LABEL[source]}
-          </span>
-        </div>
+        <span className="drama-source-label">
+          {tr('dramaSource')} · {SOURCE_LABEL[source]}
+        </span>
       </header>
       {categories.length > 0 && (
         <div className="drama-category-bar" role="group" aria-label={tr('dramaCategories')}>
