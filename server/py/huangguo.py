@@ -164,8 +164,9 @@ def summary(item):
     if not isinstance(title, str) or not title.strip() or not isinstance(cover, str):
         raise ProviderError("Incomplete source drama")
     cover = urljoin(ORIGIN, cover) if cover else ""
+    # A rotated cover CDN must not blank the whole catalog: drop the cover, keep the row.
     if cover and not valid_url(cover, "cover"):
-        raise ProviderError("Unsupported Huangguo cover host")
+        cover = ""
     out = {"id": drama_id, "title": title.strip()[:500], "coverUrl": cover,
            "description": str(item.get("description") or "")[:10000]}
     count = item.get("total_episodes") or item.get("episode_count")

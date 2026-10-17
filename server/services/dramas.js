@@ -81,7 +81,9 @@ function publicSummary(drama) {
 }
 
 async function remember(drama) {
-  if (drama.coverUrl && !isHuangguoUrl(drama.coverUrl, 'cover')) throw new Error('Unsupported cover host')
+  // Never let a rotated cover CDN fail the whole list/detail response:
+  // drop just the cover and keep the row visible.
+  if (drama?.coverUrl && !isHuangguoUrl(drama.coverUrl, 'cover')) drama.coverUrl = ''
   await cacheSet(summaryKey(drama.id), drama, 3600 * 1000)
 }
 

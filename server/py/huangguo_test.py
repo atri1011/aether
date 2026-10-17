@@ -12,7 +12,7 @@ MEDIA = 'https://yd-hls.tktjpm.cn/videos/test.m3u8?auth_key=a%2Fb'
 
 def page(ep=2, **changes):
     data = {'id': '12', 'ep': ep, 'title': 'Synthetic drama', 'description': 'Test',
-            'coverSrc': 'https://pic.wirqed.cn/cover.enc', 'breadcrumb': [{'url': '/ai-duanju/'}],
+            'coverSrc': 'https://pic.drleao.cn/cover.enc', 'breadcrumb': [{'url': '/ai-duanju/'}],
             'videoSrc': MEDIA, 'previewSrc': MEDIA, 'epPlaySrcs': {str(ep): MEDIA}}
     data.update(changes)
     links = ''.join(f'<a class="hg-web-play__ep" data-ep-id="{n}" href="/video/12/{"" if n == 1 else f"ep-{n}/"}">{n}</a>' for n in (1, 2, 4))
@@ -43,6 +43,11 @@ class HuangguoTest(unittest.TestCase):
         for bad in ({'status': 0}, {'status': 1, 'data': {'items': []}}):
             with self.assertRaises(hg.ProviderError):
                 hg.parse_list(bad, 2)
+        # A rotated cover CDN must not blank the whole catalog.
+        rotated = {'status': 1, 'data': {
+            'items': [{'id': 12, 'title': 'Test', 'cover': 'https://pic.rotated-new-cdn.test/a.jpg'}],
+            'pagination': {'page': 1, 'size': 24, 'pages': 1, 'total': 1}}}
+        self.assertEqual(hg.parse_list(rotated, 1)['items'][0]['coverUrl'], '')
         data['data']['items'] = []
         data['data']['pagination'].update(page=36)
         self.assertFalse(hg.parse_list(data, 36)['hasMore'])
